@@ -1,0 +1,18 @@
+[Unit]
+Description=Extrator de Vídeos do YouTube
+After=network.target
+
+[Service]
+Type=simple
+User=pedrolima
+WorkingDirectory=/home/pedrolima/ExtratorVideos
+Environment="PATH=/home/pedrolima/ExtratorVideos/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/pedrolima/ExtratorVideos/venv/bin/python /home/pedrolima/ExtratorVideos/main_cli.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
