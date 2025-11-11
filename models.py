@@ -132,14 +132,8 @@ class Video:
         else:
             data['tags'] = '[]'
         
-        # duration: sempre incluir
-        # A coluna no banco é INTEGER, então converte ISO 8601 para segundos
-        if self.duration:
-            from utils import parse_iso8601_duration
-            duration_seconds = parse_iso8601_duration(self.duration)
-            data['duration'] = duration_seconds if duration_seconds > 0 else 0
-        else:
-            data['duration'] = 0
+        # duration: sempre incluir (salva como vem do YouTube - formato ISO 8601)
+        data['duration'] = self.duration if self.duration else None
         
         # format: sempre incluir (tem valor padrão)
         data['format'] = self.format if self.format else '16:9'

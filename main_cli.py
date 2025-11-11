@@ -235,6 +235,142 @@ class ExtractorCLI:
         finally:
             self.is_running = False
     
+    def update_channel_videos(self):
+        """Atualiza todos os vídeos de um canal específico"""
+        try:
+            # Busca todos os canais
+            channels = self.supabase_client.get_channels()
+            
+            if not channels:
+                self.log("Nenhum canal encontrado no banco de dados", "ERROR")
+                input("\nPressione Enter para continuar...")
+                return
+            
+            # Lista canais para escolha
+            print("\n" + "="*50)
+            print("  CANAIS DISPONÍVEIS")
+            print("="*50)
+            for i, channel in enumerate(channels, 1):
+                print(f"{i}. {channel.name} (ID: {channel.channel_id})")
+            print("="*50)
+            
+            # Solicita escolha do canal
+            try:
+                choice = int(input(f"\nEscolha o canal (1-{len(channels)}): ").strip())
+                if choice < 1 or choice > len(channels):
+                    print("Opção inválida!")
+                    input("\nPressione Enter para continuar...")
+                    return
+                
+                selected_channel = channels[choice - 1]
+                
+                # Confirmação
+                print(f"\nVocê escolheu: {selected_channel.name}")
+                confirm = input("Deseja atualizar TODOS os vídeos deste canal? (s/n): ").strip().lower()
+                if confirm != 's':
+                    print("Operação cancelada.")
+                    input("\nPressione Enter para continuar...")
+                    return
+                
+                # Verifica se há chaves disponíveis
+                if not self.api_key_manager.has_available_keys():
+                    self.log("Nenhuma chave de API disponível!", "ERROR")
+                    input("\nPressione Enter para continuar...")
+                    return
+                
+                # Reconstrói extrator com chave atual
+                self.youtube_extractor = YouTubeExtractor(self.api_key_manager)
+                
+                self.log(f"Iniciando atualização completa do canal: {selected_channel.name}")
+                
+                # Obtém playlist de uploads
+                playlist_id = self.youtube_extractor.get_upload_playlist_id(selected_channel.channel_id)
+                if not playlist_id:
+                    self.log(f"Erro: Não foi possível obter playlist do canal", "ERROR")
+                    input("\nPressione Enter para continuar...")
+                    return
+                
+                # Busca TODOS os vídeos (sem filtro de data)
+                self.log("Buscando TODOS os vídeos do canal (isso pode levar alguns minutos)...")
+                videos_data = self.youtube_extractor.get_all_videos_from_playlist(playlist_id, start_date=None)
+                
+                if not videos_data:
+                    self.log("Nenhum vídeo encontrado no canal", "WARNING")
+                    input("\nPressione Enter para continuar...")
+                    return
+                
+                self.log(f"Encontrados {len(videos_data)} vídeos no total")
+                
+                # Processa vídeos
+                self.log("Processando vídeos...")
+                videos = self.youtube_extractor.process_videos(videos_data, selected_channel.channel_id)
+                
+                # Insere/atualiza no banco
+                total_videos = 0
+                total_new = 0
+                total_existing = 0
+                oldest_date = None
+                newest_date = None
+                
+                for i, video in enumerate(videos):
+                    if i % 10 == 0:
+                        self.log(f"Processando vídeo {i+1}/{len(videos)}...")
+                    
+                    # Verifica se já existe
+                    exists = self.supabase_client.video_exists(video.video_id)
+                    
+                    if exists:
+                        total_existing += 1
+                    else:
+                        # Insere vídeo novo
+                        if self.supabase_client.insert_video(video):
+                            total_new += 1
+                            total_videos += 1
+                    
+                    # Atualiza datas para o canal
+                    if video.published_at:
+                        pub_date = parse_datetime(video.published_at)
+                        if pub_date:
+                            if not oldest_date or pub_date < oldest_date:
+                                oldest_date = pub_date
+                            if not newest_date or pub_date > newest_date:
+                                newest_date = pub_date
+                
+                # Atualiza datas do canal
+                if oldest_date and newest_date:
+                    self.supabase_client.update_channel_dates(
+                        selected_channel.channel_id,
+                        oldest_date=format_datetime(oldest_date),
+                        newest_date=format_datetime(newest_date)
+                    )
+                    self.log(f"Datas do canal atualizadas: {format_datetime(oldest_date)} até {format_datetime(newest_date)}")
+                
+                self.log(f"Atualização concluída!", "SUCCESS")
+                self.log(f"Total: {len(videos)} vídeos processados")
+                self.log(f"Novos: {total_new}, Já existentes: {total_existing}")
+                
+                # Exibe informações de quota
+                if self.youtube_extractor:
+                    quota_info = self.youtube_extractor.get_quota_info()
+                    self.log(f"Quota da API: {quota_info['used']}/{quota_info['limit']} usada ({quota_info['percentage_used']:.1f}%)", "INFO")
+                    self.log(f"Quota restante: {quota_info['remaining']} unidades", "INFO")
+                    breakdown = quota_info['breakdown']
+                    if breakdown['channels_list'] > 0 or breakdown['playlist_items'] > 0 or breakdown['videos_list'] > 0:
+                        self.log(f"Detalhamento: channels.list={breakdown['channels_list']}, playlistItems.list={breakdown['playlist_items']}, videos.list={breakdown['videos_list']}", "INFO")
+                
+            except ValueError:
+                print("Entrada inválida! Digite um número.")
+                input("\nPressione Enter para continuar...")
+            except Exception as e:
+                self.log(f"Erro ao atualizar canal: {e}", "ERROR")
+                import traceback
+                traceback.print_exc()
+                input("\nPressione Enter para continuar...")
+                
+        except Exception as e:
+            self.log(f"Erro: {e}", "ERROR")
+            input("\nPressione Enter para continuar...")
+    
     def show_menu(self):
         """Mostra menu principal"""
         while True:
@@ -242,10 +378,11 @@ class ExtractorCLI:
             print("  EXTRATOR DE VÍDEOS DO YOUTUBE")
             print("="*50)
             print("1. Executar extração agora")
-            print("2. Ver configuração de agendamento")
-            print("3. Configurar agendamento")
-            print("4. Gerenciar chaves de API")
-            print("5. Sair")
+            print("2. Atualizar todos os vídeos de um canal específico")
+            print("3. Ver configuração de agendamento")
+            print("4. Configurar agendamento")
+            print("5. Gerenciar chaves de API")
+            print("6. Sair")
             print("="*50)
             
             choice = input("\nEscolha uma opção: ").strip()
@@ -255,12 +392,14 @@ class ExtractorCLI:
                 self.run_extraction()
                 input("\nPressione Enter para continuar...")
             elif choice == "2":
-                self.show_schedule_config()
+                self.update_channel_videos()
             elif choice == "3":
-                self.configure_schedule()
+                self.show_schedule_config()
             elif choice == "4":
-                self.manage_api_keys()
+                self.configure_schedule()
             elif choice == "5":
+                self.manage_api_keys()
+            elif choice == "6":
                 print("Saindo...")
                 break
             else:

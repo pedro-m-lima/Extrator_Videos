@@ -80,24 +80,7 @@ class SupabaseClient:
             if 'duplicate' in error_str or 'unique' in error_str:
                 return False
             
-            # Se erro for de tipo incorreto (ex: duration como integer mas recebendo string)
-            # Tenta converter duration para segundos
-            if 'invalid input syntax for type integer' in error_str and 'duration' in str(e).lower():
-                try:
-                    # Converte duration de ISO 8601 para segundos
-                    from utils import parse_iso8601_duration
-                    if 'duration' in video_dict and isinstance(video_dict['duration'], str):
-                        duration_str = video_dict['duration']
-                        duration_seconds = parse_iso8601_duration(duration_str)
-                        video_dict['duration'] = duration_seconds if duration_seconds > 0 else 0
-                    
-                    self.client.table('videos').insert(video_dict).execute()
-                    return True
-                except Exception as e3:
-                    if 'duplicate' in str(e3).lower() or 'unique' in str(e3).lower():
-                        return False
-                    print(f"Erro ao inserir vídeo {video.video_id} (com duration convertido): {e3}")
-                    # Continua para tentar sem campos opcionais
+            # (Removido: conversão de duration - agora salva como string ISO 8601)
             
             # Se erro for de coluna não encontrada, tenta sem os campos opcionais
             if 'column' in error_str and 'not found' in error_str:
@@ -200,4 +183,49 @@ class SupabaseClient:
         except Exception as e:
             print(f"Erro ao buscar datas de vídeos do canal {channel_id}: {e}")
             return (None, None)
+    
+    def get_video_by_id(self, video_id: str) -> Optional[Video]:
+        """Busca vídeo existente por video_id"""
+        try:
+            response = self.client.table('videos').select('*').eq('video_id', video_id).execute()
+            if response.data:
+                return Video.from_dict(response.data[0])
+            return None
+        except Exception as e:
+            print(f"Erro ao buscar vídeo {video_id}: {e}")
+            return None
+    
+    def update_video(self, video: Video) -> bool:
+        """Atualiza vídeo existente na tabela videos"""
+        video_dict = video.to_dict()
+        
+        try:
+            # Remove campos que não devem ser atualizados
+            update_dict = {k: v for k, v in video_dict.items() if k not in ['id', 'created_at']}
+            
+            # Remove None values
+            update_dict = {k: v for k, v in update_dict.items() if v is not None}
+            
+            self.client.table('videos').update(update_dict).eq('video_id', video.video_id).execute()
+            return True
+        except Exception as e:
+            error_str = str(e).lower()
+            if 'column' in error_str and 'not found' in error_str:
+                # Se coluna não existe, tenta atualizar apenas campos básicos
+                try:
+                    basic_fields = {
+                        'title': video_dict.get('title'),
+                        'views': video_dict.get('views', 0),
+                        'likes': video_dict.get('likes', 0),
+                        'comments': video_dict.get('comments', 0),
+                        'published_at': video_dict.get('published_at'),
+                    }
+                    basic_fields = {k: v for k, v in basic_fields.items() if v is not None}
+                    self.client.table('videos').update(basic_fields).eq('video_id', video.video_id).execute()
+                    return True
+                except Exception as e2:
+                    print(f"Erro ao atualizar vídeo {video.video_id} (campos básicos): {e2}")
+                    return False
+            print(f"Erro ao atualizar vídeo {video.video_id}: {e}")
+            return False
 
