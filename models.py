@@ -27,6 +27,7 @@ class Channel:
         self.newest_video_date = kwargs.get('newest_video_date')
         self.needs_old_videos = kwargs.get('needs_old_videos', True)  # Default True se não existir no banco
         self.priority = kwargs.get('priority', 5)
+        self.stats_history = kwargs.get('stats_history', {})
         self.created_at = kwargs.get('created_at')
         self.updated_at = kwargs.get('updated_at')
     
@@ -49,6 +50,7 @@ class Channel:
             'newest_video_date': self.newest_video_date,
             # 'needs_old_videos': self.needs_old_videos,  # Comentado se coluna não existir
             # 'priority': self.priority,  # Comentado se coluna não existir
+            'stats_history': json.dumps(self.stats_history) if isinstance(self.stats_history, dict) else self.stats_history,
         }
         # Remove None values
         return {k: v for k, v in data.items() if v is not None}
@@ -63,6 +65,14 @@ class Channel:
                 sponsor_ids = json.loads(sponsor_ids)
             except:
                 sponsor_ids = []
+        
+        # Processa stats_history se for string JSON
+        stats_history = data.get('stats_history', {})
+        if isinstance(stats_history, str):
+            try:
+                stats_history = json.loads(stats_history)
+            except:
+                stats_history = {}
         
         return cls(
             channel_id=data['channel_id'],
@@ -82,6 +92,7 @@ class Channel:
             newest_video_date=data.get('newest_video_date'),
             needs_old_videos=data.get('needs_old_videos', True),
             priority=data.get('priority', 5),
+            stats_history=stats_history,
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
         )

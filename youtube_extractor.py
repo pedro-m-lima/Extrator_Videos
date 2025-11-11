@@ -100,6 +100,42 @@ class YouTubeExtractor:
             print(f"Erro ao obter playlist de uploads do canal {channel_id}: {e}")
             return None
     
+    def get_channel_statistics(self, channel_id: str) -> Optional[Dict]:
+        """
+        Obtém estatísticas completas do canal
+        
+        Args:
+            channel_id: ID do canal
+        
+        Returns:
+            Dicionário com views, subscribers, video_count, name, description, etc.
+        """
+        try:
+            request = self.youtube.channels().list(
+                part='statistics,snippet',
+                id=channel_id
+            )
+            response = self._make_request_with_retry(lambda: request, request_type='channels_list')
+            
+            if response.get('items'):
+                item = response['items'][0]
+                snippet = item.get('snippet', {})
+                statistics = item.get('statistics', {})
+                
+                return {
+                    'channel_id': channel_id,
+                    'name': snippet.get('title', ''),
+                    'description': snippet.get('description', ''),
+                    'views': int(statistics.get('viewCount', 0)),
+                    'subscribers': int(statistics.get('subscriberCount', 0)),
+                    'video_count': int(statistics.get('videoCount', 0)),
+                    'thumbnail_url': snippet.get('thumbnails', {}).get('high', {}).get('url', ''),
+                }
+            return None
+        except Exception as e:
+            print(f"Erro ao obter estatísticas do canal {channel_id}: {e}")
+            return None
+    
     def get_all_videos_from_playlist(self, playlist_id: str, start_date: Optional[str] = None) -> List[Dict]:
         """
         Busca TODOS os vídeos da playlist (sem limite)
