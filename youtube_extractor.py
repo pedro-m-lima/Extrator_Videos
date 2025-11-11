@@ -403,7 +403,7 @@ class YouTubeExtractor:
         
         Args:
             video_data_list: Lista de dicionários com dados básicos dos vídeos
-            channel_id: ID do canal
+            channel_id: ID do canal (OBRIGATÓRIO - usado para validar e garantir consistência)
         
         Returns:
             Lista de objetos Video
@@ -411,8 +411,22 @@ class YouTubeExtractor:
         if not video_data_list:
             return []
         
-        # Extrai IDs dos vídeos
-        video_ids = [v['video_id'] for v in video_data_list]
+        # PRIMEIRO: Filtra vídeos que pertencem ao canal correto
+        # Remove vídeos que têm channel_id diferente do esperado
+        filtered_videos = []
+        for video_data in video_data_list:
+            video_channel_id = video_data.get('channel_id', '')
+            if video_channel_id and video_channel_id != channel_id:
+                print(f"AVISO: Vídeo {video_data.get('video_id', '?')} pertence ao canal {video_channel_id}, mas está sendo processado para o canal {channel_id}. Ignorando.")
+                continue
+            filtered_videos.append(video_data)
+        
+        if not filtered_videos:
+            print(f"Nenhum vídeo válido encontrado para o canal {channel_id}")
+            return []
+        
+        # Extrai IDs dos vídeos filtrados
+        video_ids = [v['video_id'] for v in filtered_videos]
         
         # Obtém detalhes completos
         details = self.get_video_details(video_ids)
@@ -421,9 +435,15 @@ class YouTubeExtractor:
         details_dict = {d['video_id']: d for d in details}
         
         videos = []
-        for video_data in video_data_list:
+        for video_data in filtered_videos:
             video_id = video_data['video_id']
             details = details_dict.get(video_id, {})
+            
+            # VALIDAÇÃO CRÍTICA: Verifica se o channel_id dos detalhes corresponde
+            details_channel_id = details.get('channel_id', '')
+            if details_channel_id and details_channel_id != channel_id:
+                print(f"ERRO: Vídeo {video_id} tem channel_id={details_channel_id} nos detalhes, mas esperado {channel_id}. Ignorando vídeo.")
+                continue
             
             # Detecta se é Short
             format_type, is_short = detect_short(
@@ -432,8 +452,9 @@ class YouTubeExtractor:
                 details.get('description', video_data.get('description', ''))
             )
             
+            # USA SEMPRE o channel_id passado como parâmetro, não o da API
             video = Video(
-                channel_id=channel_id,
+                channel_id=channel_id,  # SEMPRE usa o channel_id do parâmetro
                 video_id=video_id,
                 title=details.get('title', video_data.get('title', '')),
                 views=details.get('views', 0),
