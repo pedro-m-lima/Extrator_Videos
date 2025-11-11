@@ -2,11 +2,9 @@ name: Extrair Vídeos do YouTube
 
 on:
   schedule:
-    # Executa 2 vezes por dia:
-    # - 21:35 UTC = 18:35 BRT - Modo RETROATIVA (vídeos antigos)
-    # - 11:00 UTC = 08:00 BRT - Modo ATUAL (vídeos novos)
-    - cron: '35 21 * * *'   # 18:35 BRT - Noite (vídeos antigos)
-    - cron: '0 11 * * *'     # 08:00 BRT - Manhã (vídeos novos)
+    # Executa 1 vez por dia às 3:00 da manhã BRT
+    # - 6:00 UTC = 3:00 BRT - Busca novos vídeos
+    - cron: '0 6 * * *'     # 3:00 BRT - Manhã (vídeos novos)
   
   # Permite execução manual
   workflow_dispatch:
