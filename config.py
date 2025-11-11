@@ -21,6 +21,7 @@ YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "AIzaSyCl5dHCtinYrqz5fv_pItVrIWzX
 API_KEYS_FILE = BASE_DIR / "api_keys.json"
 SCHEDULE_CONFIG_FILE = BASE_DIR / "schedule_config.json"
 CACHE_FILE = BASE_DIR / "cache.json"
+CHECKPOINT_FILE = BASE_DIR / "checkpoint.json"
 
 # Limites e configurações
 MAX_VIDEOS_PER_EXECUTION = 50
@@ -32,6 +33,13 @@ RETRY_MAX_ATTEMPTS = 3
 RETRY_DELAY_BASE = 1  # segundos
 REQUEST_DELAY = 0.5  # segundos entre requisições
 CHANNEL_DELAY = 0.5  # segundos entre canais
+
+# Configurações de atualização de canais (update_channels.py)
+MAX_CONCURRENT_CHANNELS = 3  # Número máximo de canais processados em paralelo
+CHANNEL_TIMEOUT = 30  # Timeout em segundos para processar um canal
+BATCH_SIZE = 20  # Tamanho do lote de canais processados antes de salvar checkpoint
+CHECKPOINT_INTERVAL = 10  # Salvar checkpoint a cada N canais processados
+RATE_LIMIT_DELAY = 0.3  # Delay entre requisições para respeitar rate limit
 
 def load_api_keys():
     """Carrega lista de chaves de API do arquivo"""
