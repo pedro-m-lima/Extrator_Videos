@@ -158,6 +158,18 @@ Com GitHub Actions, o extrator roda automaticamente na nuvem, sem precisar mante
 - `tags` (TEXT) - Tags em formato JSON
 - ... outros campos
 
+### Tabela `metrics`
+- `id` (BIGSERIAL PRIMARY KEY) - ID único da métrica
+- `channel_id` (TEXT) - ID do canal (foreign key para channels)
+- `date` (DATE) - Data da métrica (sem hora)
+- `views` (BIGINT) - Total de visualizações do canal na data
+- `subscribers` (BIGINT) - Total de inscritos do canal na data
+- `video_count` (INTEGER) - Total de vídeos do canal na data
+- `created_at` (TIMESTAMP) - Data de criação do registro
+- Constraint único: `(channel_id, date)` - garante apenas uma métrica por canal por dia
+
+**Nota:** Esta tabela armazena o histórico diário de métricas dos canais. É atualizada automaticamente pela rotina diária de atualização de canais. Veja `create_metrics_table.sql` para criar a tabela.
+
 ## Detecção de Shorts
 
 Um vídeo é identificado como Short se tiver duração menor que 3 minutos (180 segundos).

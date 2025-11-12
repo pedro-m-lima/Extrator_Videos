@@ -133,73 +133,80 @@ class SupabaseClient:
         except Exception as e:
             print(f"Erro ao atualizar estatísticas do canal {channel_id}: {e}")
     
-    def update_channel_with_history(self, channel_id: str, views: int, subscribers: int, video_count: int, stats_history: Optional[dict] = None):
+    def insert_or_update_metric(self, channel_id: str, views: int, subscribers: int, video_count: int):
         """
-        Atualiza estatísticas do canal e histórico JSON
+        Insere ou atualiza métrica diária na tabela metrics e atualiza estatísticas do canal
         
         Args:
             channel_id: ID do canal
             views: Total de visualizações
             subscribers: Total de inscritos
             video_count: Total de vídeos
-            stats_history: Histórico JSON (será atualizado automaticamente se None)
         """
         try:
-            import json
+            from datetime import date
             
-            # Se stats_history não foi fornecido, busca o existente e atualiza
-            if stats_history is None:
-                # Busca canal atual
-                channel = self.get_channel_by_id(channel_id)
-                if channel:
-                    # Tenta obter stats_history do banco (se existir)
-                    try:
-                        response = self.client.table('channels').select('stats_history').eq('channel_id', channel_id).execute()
-                        if response.data and response.data[0].get('stats_history'):
-                            stats_history_str = response.data[0]['stats_history']
-                            if isinstance(stats_history_str, str):
-                                stats_history = json.loads(stats_history_str)
-                            else:
-                                stats_history = stats_history_str
-                        else:
-                            stats_history = {}
-                    except:
-                        stats_history = {}
+            # Data atual (sem hora)
+            today = date.today().isoformat()
+            
+            # Dados da métrica
+            metric_data = {
+                'channel_id': channel_id,
+                'date': today,
+                'views': views,
+                'subscribers': subscribers,
+                'video_count': video_count
+            }
+            
+            # Verifica se já existe métrica para hoje
+            try:
+                response = self.client.table('metrics').select('id').eq('channel_id', channel_id).eq('date', today).execute()
+                
+                if response.data and len(response.data) > 0:
+                    # Já existe, atualiza
+                    update_data = {
+                        'views': views,
+                        'subscribers': subscribers,
+                        'video_count': video_count
+                    }
+                    self.client.table('metrics').update(update_data).eq('channel_id', channel_id).eq('date', today).execute()
                 else:
-                    stats_history = {}
+                    # Não existe, insere
+                    self.client.table('metrics').insert(metric_data).execute()
+            except Exception as e:
+                # Se der erro na verificação, tenta inserir diretamente
+                # Se já existir, o banco vai retornar erro de constraint única
+                error_str = str(e).lower()
+                if 'duplicate' in error_str or 'unique' in error_str or 'constraint' in error_str:
+                    # Já existe, atualiza
+                    update_data = {
+                        'views': views,
+                        'subscribers': subscribers,
+                        'video_count': video_count
+                    }
+                    self.client.table('metrics').update(update_data).eq('channel_id', channel_id).eq('date', today).execute()
+                else:
+                    # Outro erro, tenta inserir novamente
+                    try:
+                        self.client.table('metrics').insert(metric_data).execute()
+                    except Exception as e2:
+                        print(f"Erro ao inserir métrica para canal {channel_id}: {e2}")
+                        raise
             
-            # Adiciona dados do dia atual
-            now = datetime.now()
-            year = str(now.year)
-            month = str(now.month).zfill(2)
-            day = str(now.day).zfill(2)
+            # Atualiza também as estatísticas atuais na tabela channels
+            self.update_channel_stats(channel_id, views, subscribers, video_count)
             
-            if year not in stats_history:
-                stats_history[year] = {}
-            if month not in stats_history[year]:
-                stats_history[year][month] = {}
-            if day not in stats_history[year][month]:
-                stats_history[year][month][day] = {}
-            
-            stats_history[year][month][day] = {
-                'views': views,
-                'subscribers': subscribers,
-                'video_count': video_count,
-                'timestamp': now.isoformat()
-            }
-            
-            # Atualiza no banco
-            update_data = {
-                'views': views,
-                'subscribers': subscribers,
-                'video_count': video_count,
-                'stats_history': json.dumps(stats_history),
-                'updated_at': datetime.now().isoformat()
-            }
-            
-            self.client.table('channels').update(update_data).eq('channel_id', channel_id).execute()
         except Exception as e:
-            print(f"Erro ao atualizar canal {channel_id} com histórico: {e}")
+            print(f"Erro ao inserir/atualizar métrica para canal {channel_id}: {e}")
+    
+    def update_channel_with_history(self, channel_id: str, views: int, subscribers: int, video_count: int, stats_history: Optional[dict] = None):
+        """
+        [DEPRECADO] Atualiza estatísticas do canal e histórico JSON
+        Use insert_or_update_metric() ao invés deste método
+        
+        Mantido para compatibilidade, mas agora redireciona para insert_or_update_metric
+        """
+        self.insert_or_update_metric(channel_id, views, subscribers, video_count)
     
     def update_channel_dates(self, channel_id: str, oldest_date: Optional[str] = None, newest_date: Optional[str] = None):
         """Atualiza oldest_video_date e newest_video_date do canal"""

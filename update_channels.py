@@ -175,8 +175,8 @@ def process_single_channel(
                 'error': error_msg
             }
         
-        # Atualiza canal com histórico
-        supabase_client.update_channel_with_history(
+        # Insere ou atualiza métrica diária na tabela metrics
+        supabase_client.insert_or_update_metric(
             channel_id=channel_id,
             views=stats['views'],
             subscribers=stats['subscribers'],
