@@ -39,23 +39,27 @@ def parse_iso8601_duration(duration: str) -> int:
     return hours * 3600 + minutes * 60 + seconds
 
 
-def detect_short(duration: str, title: str, description: str = "") -> Tuple[str, bool]:
+def detect_short(duration: str, title: str, description: str = "") -> Tuple[str, bool, bool]:
     """
-    Detecta se um vídeo é Short baseado apenas na duração
+    Detecta se um vídeo é Short baseado apenas na duração e identifica vídeos inválidos
     
-    Retorna: (format, is_short)
+    Retorna: (format, is_short, is_invalid)
     - format: "9:16" para Short, "16:9" para vídeo normal
     - is_short: True se for Short (duração < 3 minutos), False caso contrário
+    - is_invalid: True se duração for 0 segundos (vídeo inválido), False caso contrário
     """
     # Converte duração para segundos
     duration_seconds = parse_iso8601_duration(duration)
     
-    # É Short se duração for menor que 3 minutos (180 segundos)
-    is_short = duration_seconds < 180
+    # Vídeo inválido se duração for 0 segundos
+    is_invalid = duration_seconds == 0
+    
+    # É Short se duração for menor que 3 minutos (180 segundos) E não for inválido
+    is_short = duration_seconds < 180 and not is_invalid
     
     format_type = "9:16" if is_short else "16:9"
     
-    return format_type, is_short
+    return format_type, is_short, is_invalid
 
 
 def parse_datetime(date_str: Optional[str]) -> Optional[datetime]:

@@ -159,6 +159,7 @@ Com GitHub Actions, o extrator roda automaticamente na nuvem, sem precisar mante
 - `title` (TEXT) - Título do vídeo
 - `format` (TEXT) - Formato: "16:9" ou "9:16"
 - `is_short` (BOOLEAN) - Se é Short ou não
+- `is_invalid` (BOOLEAN) - Se é vídeo inválido (duração 0 segundos)
 - `views`, `likes`, `comments` (INTEGER) - Estatísticas
 - `published_at` (TIMESTAMP) - Data de publicação
 - `duration` (TEXT) - Duração em formato ISO 8601
@@ -177,9 +178,10 @@ Com GitHub Actions, o extrator roda automaticamente na nuvem, sem precisar mante
 
 **Nota:** Esta tabela armazena o histórico diário de métricas dos canais. É atualizada automaticamente pela rotina diária de atualização de canais. Veja `create_metrics_table.sql` para criar a tabela.
 
-## Detecção de Shorts
+## Detecção de Shorts e Vídeos Inválidos
 
-Um vídeo é identificado como Short se tiver duração menor que 3 minutos (180 segundos).
+- **Shorts**: Um vídeo é identificado como Short se tiver duração menor que 3 minutos (180 segundos). Apenas a duração é considerada para esta classificação.
+- **Vídeos Inválidos**: Vídeos com duração de 0 segundos são marcados como inválidos (`is_invalid = TRUE`). Vídeos inválidos não são considerados Shorts, mesmo que tenham duração menor que 3 minutos.
 
 ## Otimizações
 

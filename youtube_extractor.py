@@ -481,8 +481,8 @@ class YouTubeExtractor:
                 print(f"ERRO: Vídeo {video_id} tem channel_id={details_channel_id} nos detalhes, mas esperado {channel_id}. Ignorando vídeo.")
                 continue
             
-            # Detecta se é Short
-            format_type, is_short = detect_short(
+            # Detecta se é Short e se é inválido
+            format_type, is_short, is_invalid = detect_short(
                 details.get('duration', ''),
                 details.get('title', video_data.get('title', '')),
                 details.get('description', video_data.get('description', ''))
@@ -501,7 +501,8 @@ class YouTubeExtractor:
                 video_url=f"https://www.youtube.com/watch?v={video_id}",
                 tags=details.get('tags', []),
                 format=format_type,
-                is_short=is_short
+                is_short=is_short,
+                is_invalid=is_invalid
             )
             
             videos.append(video)

@@ -45,6 +45,17 @@ BEGIN
     END IF;
 END $$;
 
+-- Adiciona coluna is_invalid se não existir
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'videos' AND column_name = 'is_invalid'
+    ) THEN
+        ALTER TABLE videos ADD COLUMN is_invalid BOOLEAN DEFAULT FALSE;
+    END IF;
+END $$;
+
 -- Adiciona colunas na tabela channels se não existirem
 -- Adiciona coluna needs_old_videos se não existir
 DO $$ 

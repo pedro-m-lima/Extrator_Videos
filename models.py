@@ -115,6 +115,7 @@ class Video:
         self.tags = kwargs.get('tags', [])
         self.format = kwargs.get('format', '16:9')
         self.is_short = kwargs.get('is_short', False)
+        self.is_invalid = kwargs.get('is_invalid', False)
         self.created_at = kwargs.get('created_at')
     
     def to_dict(self):
@@ -152,6 +153,9 @@ class Video:
         # is_short: sempre incluir (tem valor padrão)
         data['is_short'] = self.is_short if self.is_short is not None else False
         
+        # is_invalid: sempre incluir (tem valor padrão)
+        data['is_invalid'] = self.is_invalid if self.is_invalid is not None else False
+        
         # Remove apenas campos que são None (mas mantém strings vazias e listas vazias)
         return {k: v for k, v in data.items() if v is not None}
     
@@ -180,6 +184,7 @@ class Video:
             tags=tags,
             format=data.get('format', '16:9'),
             is_short=data.get('is_short', False),
+            is_invalid=data.get('is_invalid', False),
             created_at=data.get('created_at'),
         )
 
