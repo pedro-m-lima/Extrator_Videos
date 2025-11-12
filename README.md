@@ -95,7 +95,7 @@ Com systemd, o extrator roda automaticamente mesmo quando você não está logad
 # Resumo:
 # 1. Faça push do código para o GitHub
 # 2. Configure os secrets (SUPABASE_URL, SUPABASE_KEY, YOUTUBE_API_KEY)
-# 3. O workflow roda automaticamente 1x por dia (3:00 BRT)
+# 3. O workflow roda automaticamente 1x por dia (1:00 BRT)
 ```
 
 Com GitHub Actions, o extrator roda automaticamente na nuvem, sem precisar manter sua máquina ligada. Veja `GITHUB_ACTIONS_SETUP.md` para instruções detalhadas.
