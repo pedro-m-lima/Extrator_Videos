@@ -1,15 +1,18 @@
 """
 Script standalone para rodar no GitHub Actions
 Executa uma única extração sem interface
+Suporta processamento paralelo com 3 workers simultâneos
 """
 import sys
 import os
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import config
 from api_key_manager import APIKeyManager
 from supabase_client import SupabaseClient
 from youtube_extractor import YouTubeExtractor
 from utils import is_afternoon_time, is_night_time, parse_datetime, format_datetime
+from models import Channel
 
 
 def log(message: str, level: str = "INFO"):
@@ -24,6 +27,135 @@ def log(message: str, level: str = "INFO"):
     
     print(f"{timestamp} {prefix} {message}")
     sys.stdout.flush()
+
+
+def process_single_channel(
+    channel: Channel,
+    youtube_extractor: YouTubeExtractor,
+    supabase_client: SupabaseClient,
+    mode: str,
+    channel_index: int,
+    total_channels: int
+) -> dict:
+    """Processa um único canal e retorna estatísticas"""
+    channel_stats = {
+        'channel_id': channel.channel_id,
+        'channel_name': channel.name,
+        'new': 0,
+        'existing': 0,
+        'errors': 0
+    }
+    
+    try:
+        log(f"[{channel_index}/{total_channels}] Processando: {channel.name} (ID: {channel.channel_id})")
+        
+        # Obtém playlist de uploads
+        playlist_id = youtube_extractor.get_upload_playlist_id(channel.channel_id)
+        if not playlist_id:
+            log(f"  Erro: Não foi possível obter playlist do canal", "ERROR")
+            channel_stats['errors'] = 1
+            return channel_stats
+        
+        if mode == "RETROATIVA":
+            # Busca vídeos antigos retroativamente
+            start_date = channel.oldest_video_date if channel.oldest_video_date else channel.newest_video_date
+            
+            if config.FETCH_ALL_VIDEOS_AT_ONCE:
+                # Busca TODOS os vídeos de uma vez
+                if start_date:
+                    log(f"  Buscando TODOS os vídeos retroativamente a partir de {start_date}")
+                else:
+                    log(f"  Buscando TODOS os vídeos do canal (primeira busca completa)")
+                
+                videos_data = youtube_extractor.get_all_videos_from_playlist(
+                    playlist_id, start_date
+                )
+                
+                if not videos_data:
+                    log(f"  Nenhum vídeo encontrado. Canal pode estar completo.")
+                    return channel_stats
+                
+                log(f"  Encontrados {len(videos_data)} vídeos no total")
+            else:
+                # Busca gradual (50 por vez)
+                if start_date:
+                    log(f"  Buscando vídeos retroativamente a partir de {start_date} (50 por execução)")
+                else:
+                    log(f"  Buscando vídeos retroativamente (primeira busca - sem data inicial, 50 por execução)")
+                
+                videos_data = youtube_extractor.get_old_videos_retroactive(
+                    playlist_id, start_date, max_videos=config.MAX_VIDEOS_PER_EXECUTION
+                )
+                
+                if not videos_data:
+                    log(f"  Nenhum vídeo antigo encontrado. Verificando se canal está completo...")
+                    return channel_stats
+                
+                log(f"  Encontrados {len(videos_data)} vídeos antigos (busca gradual)")
+        else:
+            # Busca vídeos novos
+            since_date = channel.newest_video_date
+            log(f"  Buscando vídeos novos desde {since_date}")
+            
+            videos_data = youtube_extractor.get_new_videos(playlist_id, since_date)
+            
+            if not videos_data:
+                log(f"  Nenhum vídeo novo encontrado")
+                return channel_stats
+            
+            log(f"  Encontrados {len(videos_data)} vídeos novos")
+        
+        # Processa vídeos
+        videos = youtube_extractor.process_videos(videos_data, channel.channel_id)
+        
+        # Insere no banco
+        oldest_date = None
+        newest_date = None
+        
+        for video in videos:
+            # Verifica se já existe
+            if supabase_client.video_exists(video.video_id):
+                channel_stats['existing'] += 1
+                continue
+            
+            # Insere vídeo
+            if supabase_client.insert_video(video):
+                channel_stats['new'] += 1
+                
+                # Atualiza datas
+                if video.published_at:
+                    pub_date = parse_datetime(video.published_at)
+                    if pub_date:
+                        if not oldest_date or pub_date < oldest_date:
+                            oldest_date = pub_date
+                        if not newest_date or pub_date > newest_date:
+                            newest_date = pub_date
+            else:
+                channel_stats['errors'] += 1
+        
+        # Atualiza datas do canal
+        update_oldest = None
+        update_newest = None
+        
+        if mode == "RETROATIVA" and oldest_date:
+            update_oldest = format_datetime(oldest_date)
+        elif mode == "ATUAL" and newest_date:
+            update_newest = format_datetime(newest_date)
+        
+        if update_oldest or update_newest:
+            supabase_client.update_channel_dates(
+                channel.channel_id,
+                oldest_date=update_oldest,
+                newest_date=update_newest
+            )
+        
+        log(f"  [{channel_index}/{total_channels}] ✓ {channel.name}: {channel_stats['new']} novos, {channel_stats['existing']} já existentes", "SUCCESS")
+        
+    except Exception as e:
+        log(f"  [{channel_index}/{total_channels}] ✗ Erro ao processar canal {channel.name}: {e}", "ERROR")
+        channel_stats['errors'] += 1
+    
+    return channel_stats
 
 
 def run_extraction():
@@ -90,121 +222,43 @@ def run_extraction():
             c.channel_id
         ), reverse=True)
         
+        log(f"Processamento paralelo: 3 workers simultâneos")
+        
         total_videos = 0
         total_new = 0
         total_existing = 0
+        total_errors = 0
         
-        for i, channel in enumerate(channels):
-            log(f"Processando canal {i+1}/{len(channels)}: {channel.name} (ID: {channel.channel_id})")
+        # Processa canais em paralelo com 3 workers
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            # Submete todas as tarefas
+            future_to_channel = {
+                executor.submit(
+                    process_single_channel,
+                    channel,
+                    youtube_extractor,
+                    supabase_client,
+                    mode,
+                    i + 1,
+                    len(channels)
+                ): channel
+                for i, channel in enumerate(channels)
+            }
             
-            try:
-                # Obtém playlist de uploads
-                playlist_id = youtube_extractor.get_upload_playlist_id(channel.channel_id)
-                if not playlist_id:
-                    log(f"  Erro: Não foi possível obter playlist do canal", "ERROR")
-                    continue
-                
-                videos_found = []
-                
-                if mode == "RETROATIVA":
-                    # Busca vídeos antigos retroativamente
-                    start_date = channel.oldest_video_date if channel.oldest_video_date else channel.newest_video_date
-                    
-                    if config.FETCH_ALL_VIDEOS_AT_ONCE:
-                        # Busca TODOS os vídeos de uma vez
-                        if start_date:
-                            log(f"  Buscando TODOS os vídeos retroativamente a partir de {start_date}")
-                        else:
-                            log(f"  Buscando TODOS os vídeos do canal (primeira busca completa)")
-                        
-                        videos_data = youtube_extractor.get_all_videos_from_playlist(
-                            playlist_id, start_date
-                        )
-                        
-                        if not videos_data:
-                            log(f"  Nenhum vídeo encontrado. Canal pode estar completo.")
-                            continue
-                        
-                        log(f"  Encontrados {len(videos_data)} vídeos no total")
-                    else:
-                        # Busca gradual (50 por vez)
-                        if start_date:
-                            log(f"  Buscando vídeos retroativamente a partir de {start_date} (50 por execução)")
-                        else:
-                            log(f"  Buscando vídeos retroativamente (primeira busca - sem data inicial, 50 por execução)")
-                        
-                        videos_data = youtube_extractor.get_old_videos_retroactive(
-                            playlist_id, start_date, max_videos=config.MAX_VIDEOS_PER_EXECUTION
-                        )
-                        
-                        if not videos_data:
-                            log(f"  Nenhum vídeo antigo encontrado. Verificando se canal está completo...")
-                            continue
-                        
-                        log(f"  Encontrados {len(videos_data)} vídeos antigos (busca gradual)")
-                else:
-                    # Busca vídeos novos
-                    since_date = channel.newest_video_date
-                    log(f"  Buscando vídeos novos desde {since_date}")
-                    
-                    videos_data = youtube_extractor.get_new_videos(playlist_id, since_date)
-                    
-                    if not videos_data:
-                        log(f"  Nenhum vídeo novo encontrado")
-                        continue
-                    
-                    log(f"  Encontrados {len(videos_data)} vídeos novos")
-                
-                # Processa vídeos
-                videos = youtube_extractor.process_videos(videos_data, channel.channel_id)
-                
-                # Insere no banco
-                oldest_date = None
-                newest_date = None
-                
-                for video in videos:
-                    # Verifica se já existe
-                    if supabase_client.video_exists(video.video_id):
-                        total_existing += 1
-                        continue
-                    
-                    # Insere vídeo
-                    if supabase_client.insert_video(video):
-                        total_new += 1
-                        total_videos += 1
-                        
-                        # Atualiza datas
-                        if video.published_at:
-                            pub_date = parse_datetime(video.published_at)
-                            if pub_date:
-                                if not oldest_date or pub_date < oldest_date:
-                                    oldest_date = pub_date
-                                if not newest_date or pub_date > newest_date:
-                                    newest_date = pub_date
-                
-                # Atualiza datas do canal
-                update_oldest = None
-                update_newest = None
-                
-                if mode == "RETROATIVA" and oldest_date:
-                    update_oldest = format_datetime(oldest_date)
-                elif mode == "ATUAL" and newest_date:
-                    update_newest = format_datetime(newest_date)
-                
-                if update_oldest or update_newest:
-                    supabase_client.update_channel_dates(
-                        channel.channel_id,
-                        oldest_date=update_oldest,
-                        newest_date=update_newest
-                    )
-                
-                log(f"  Canal processado: {total_new} novos, {total_existing} já existentes", "SUCCESS")
-                
-            except Exception as e:
-                log(f"  Erro ao processar canal: {e}", "ERROR")
-                continue
+            # Processa resultados conforme completam
+            for future in as_completed(future_to_channel):
+                channel = future_to_channel[future]
+                try:
+                    stats = future.result()
+                    total_new += stats['new']
+                    total_existing += stats['existing']
+                    total_errors += stats['errors']
+                    total_videos += stats['new']
+                except Exception as e:
+                    log(f"Erro ao processar resultado do canal {channel.name}: {e}", "ERROR")
+                    total_errors += 1
         
-        log(f"Extração concluída! Total: {total_videos} vídeos ({total_new} novos, {total_existing} já existentes)", "SUCCESS")
+        log(f"Extração concluída! Total: {total_videos} vídeos ({total_new} novos, {total_existing} já existentes, {total_errors} erros)", "SUCCESS")
         
         # Exibe informações de quota
         quota_info = youtube_extractor.get_quota_info()
