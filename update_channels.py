@@ -222,8 +222,13 @@ def check_quota(youtube_extractor: YouTubeExtractor) -> bool:
     return True
 
 
-def update_all_channels():
-    """Atualiza estatísticas de todos os canais com processamento paralelo e checkpoint"""
+def update_all_channels(channel_ids: Optional[List[str]] = None):
+    """
+    Atualiza estatísticas de canais com processamento paralelo e checkpoint
+    
+    Args:
+        channel_ids: Lista de IDs de canais para atualizar. Se None, atualiza todos os canais.
+    """
     start_time = datetime.now()
     checkpoint_manager = CheckpointManager(config.CHECKPOINT_FILE)
     
@@ -239,9 +244,23 @@ def update_all_channels():
             log("Quota insuficiente para iniciar processamento", "ERROR")
             return
         
-        # Busca todos os canais
-        log("Buscando canais...")
-        all_channels = supabase_client.get_channels()
+        # Busca canais
+        if channel_ids:
+            log(f"Buscando {len(channel_ids)} canal(is) específico(s)...")
+            all_channels = []
+            for channel_id in channel_ids:
+                channel = supabase_client.get_channel_by_id(channel_id.strip())
+                if channel:
+                    all_channels.append(channel)
+                else:
+                    log(f"Canal não encontrado: {channel_id}", "WARNING")
+            
+            if not all_channels:
+                log("Nenhum canal válido encontrado", "WARNING")
+                return
+        else:
+            log("Buscando todos os canais...")
+            all_channels = supabase_client.get_channels()
         
         if not all_channels:
             log("Nenhum canal encontrado", "WARNING")
@@ -404,4 +423,15 @@ if __name__ == "__main__":
             keys = [k.strip() for k in keys_str.split(',')]
             config.save_api_keys(keys)
     
-    update_all_channels()
+    # Verifica se foi especificado um canal específico via variável de ambiente
+    channel_id_env = os.getenv("CHANNEL_ID")
+    channel_ids = None
+    
+    if channel_id_env:
+        # Suporta um único channel_id ou múltiplos separados por vírgula
+        channel_ids = [cid.strip() for cid in channel_id_env.split(',') if cid.strip()]
+        log(f"Modo: Atualização de canal(is) específico(s): {len(channel_ids)} canal(is)", "INFO")
+    else:
+        log("Modo: Atualização de todos os canais", "INFO")
+    
+    update_all_channels(channel_ids=channel_ids)

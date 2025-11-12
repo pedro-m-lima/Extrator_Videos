@@ -95,10 +95,17 @@ Com systemd, o extrator roda automaticamente mesmo quando você não está logad
 # Resumo:
 # 1. Faça push do código para o GitHub
 # 2. Configure os secrets (SUPABASE_URL, SUPABASE_KEY, YOUTUBE_API_KEY)
-# 3. O workflow roda automaticamente 2x por dia
+# 3. O workflow roda automaticamente 1x por dia (3:00 BRT)
 ```
 
 Com GitHub Actions, o extrator roda automaticamente na nuvem, sem precisar manter sua máquina ligada. Veja `GITHUB_ACTIONS_SETUP.md` para instruções detalhadas.
+
+**Atualização de Canais (GitHub Actions):**
+- **Automático:** Executa diariamente às 23:59 BRT atualizando todos os canais
+- **Manual com seleção:** Ao executar manualmente o workflow "Atualizar Estatísticas dos Canais", você pode:
+  - Deixar o campo `channel_id` vazio para atualizar todos os canais
+  - Informar um `channel_id` específico para atualizar apenas aquele canal
+  - Exemplo: `UCPX0gLduKAfgr-HJENa7CFw` (ID do canal do YouTube)
 
 ## Uso
 

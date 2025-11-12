@@ -6,8 +6,13 @@ on:
     # BRT = UTC-3, então 23:59 BRT = 02:59 UTC (próximo dia)
     - cron: '59 2 * * *'   # 23:59 BRT (02:59 UTC do dia seguinte)
   
-  # Permite execução manual
+  # Permite execução manual com seleção de canal
   workflow_dispatch:
+    inputs:
+      channel_id:
+        description: 'ID do canal para atualizar (deixe vazio para atualizar todos)'
+        required: false
+        type: string
 
 jobs:
   update_channels:
@@ -33,6 +38,7 @@ jobs:
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
+        CHANNEL_ID: ${{ inputs.channel_id }}
       run: |
         python update_channels.py
     
