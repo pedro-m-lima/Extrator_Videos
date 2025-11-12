@@ -101,7 +101,7 @@ Com systemd, o extrator roda automaticamente mesmo quando você não está logad
 Com GitHub Actions, o extrator roda automaticamente na nuvem, sem precisar manter sua máquina ligada. Veja `GITHUB_ACTIONS_SETUP.md` para instruções detalhadas.
 
 **Atualização de Canais (GitHub Actions):**
-- **Automático:** Executa diariamente às 23:59 BRT atualizando todos os canais
+- **Automático:** Executa diariamente às 23:30 BRT atualizando todos os canais
 - **Manual com seleção:** Ao executar manualmente o workflow "Atualizar Estatísticas dos Canais", você pode:
   - Deixar o campo `channel_id` vazio para atualizar todos os canais
   - Informar um `channel_id` específico para atualizar apenas aquele canal

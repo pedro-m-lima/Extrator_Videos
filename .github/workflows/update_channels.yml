@@ -2,9 +2,10 @@ name: Atualizar Estatísticas dos Canais
 
 on:
   schedule:
-    # Executa diariamente às 23:59 BRT (02:59 UTC do dia seguinte)
-    # BRT = UTC-3, então 23:59 BRT = 02:59 UTC (próximo dia)
-    - cron: '59 2 * * *'   # 23:59 BRT (02:59 UTC do dia seguinte)
+    # Executa diariamente às 23:30 BRT (02:30 UTC do dia seguinte)
+    # BRT = UTC-3, então 23:30 BRT = 02:30 UTC (próximo dia)
+    # Horário antecipado para garantir execução no fim do dia sem atrasos
+    - cron: '30 2 * * *'   # 23:30 BRT (02:30 UTC do dia seguinte)
   
   # Permite execução manual com seleção de canal
   workflow_dispatch:
