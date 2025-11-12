@@ -1,18 +1,17 @@
-name: Atualizar Todos os Vídeos
+name: Atualizar Vídeos de Canais
 
 on:
   # Permite execução manual apenas
   workflow_dispatch:
     inputs:
-      confirm:
-        description: 'Digite "SIM" para confirmar a atualização completa'
+      channel_ids:
+        description: 'IDs dos canais para atualizar (separados por vírgula). Ex: UCPX0gLduKAfgr-HJENa7CFw,UCxxxxx'
         required: true
-        default: 'NÃO'
+        type: string
 
 jobs:
   update:
     runs-on: ubuntu-latest
-    if: github.event.inputs.confirm == 'SIM'
     
     steps:
     - name: Checkout código
@@ -28,12 +27,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Executar atualização completa
+    - name: Executar atualização de vídeos
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
+        CHANNEL_IDS: ${{ inputs.channel_ids }}
       run: |
         python update_all_videos.py
     

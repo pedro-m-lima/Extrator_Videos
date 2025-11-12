@@ -107,6 +107,13 @@ Com GitHub Actions, o extrator roda automaticamente na nuvem, sem precisar mante
   - Informar um `channel_id` específico para atualizar apenas aquele canal
   - Exemplo: `UCPX0gLduKAfgr-HJENa7CFw` (ID do canal do YouTube)
 
+**Atualização de Vídeos (GitHub Actions):**
+- **Manual:** Workflow "Atualizar Vídeos de Canais" permite atualizar vídeos de canais específicos
+- **Seleção de canais:** Informe os `channel_ids` separados por vírgula no campo de input
+- **Processamento paralelo:** Usa 3 workers simultâneos para processar canais em paralelo
+- **Exemplo:** `UCPX0gLduKAfgr-HJENa7CFw,UCxxxxx,UCyyyyy` (múltiplos canais)
+- **Listar canais:** Execute `python list_channels.py` para ver todos os canais disponíveis e seus IDs
+
 ## Uso
 
 ### Interface Desktop
