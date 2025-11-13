@@ -35,11 +35,11 @@ REQUEST_DELAY = 0.5  # segundos entre requisições
 CHANNEL_DELAY = 0.5  # segundos entre canais
 
 # Configurações de atualização de canais (update_channels.py)
-MAX_CONCURRENT_CHANNELS = 3  # Número máximo de canais processados em paralelo
+MAX_CONCURRENT_CHANNELS = 2  # Número máximo de canais processados em paralelo (reduzido para evitar problemas de memória)
 CHANNEL_TIMEOUT = 30  # Timeout em segundos para processar um canal
-BATCH_SIZE = 20  # Tamanho do lote de canais processados antes de salvar checkpoint
+BATCH_SIZE = 10  # Tamanho do lote de canais processados antes de salvar checkpoint (reduzido para economizar memória)
 CHECKPOINT_INTERVAL = 10  # Salvar checkpoint a cada N canais processados
-RATE_LIMIT_DELAY = 0.3  # Delay entre requisições para respeitar rate limit
+RATE_LIMIT_DELAY = 0.5  # Delay entre requisições para respeitar rate limit (aumentado)
 
 def load_api_keys():
     """Carrega lista de chaves de API do arquivo"""

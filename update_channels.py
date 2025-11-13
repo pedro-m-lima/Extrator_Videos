@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import time
+import gc
 import threading
 from datetime import datetime, date
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError, as_completed
@@ -120,8 +121,6 @@ def log(message: str, level: str = "INFO"):
 
 def process_single_channel(
     channel: Channel,
-    youtube_extractor: YouTubeExtractor,
-    supabase_client: SupabaseClient,
     checkpoint_manager: CheckpointManager,
     timeout: int = config.CHANNEL_TIMEOUT
 ) -> Dict:
@@ -141,6 +140,20 @@ def process_single_channel(
             'channel_id': channel_id,
             'skipped': True,
             'message': 'Já processado hoje'
+        }
+    
+    # Cria instâncias locais dos clientes para evitar problemas de thread-safety
+    try:
+        api_key_manager = APIKeyManager()
+        youtube_extractor = YouTubeExtractor(api_key_manager)
+        supabase_client = SupabaseClient()
+    except Exception as e:
+        error_msg = f"Erro ao inicializar clientes para {channel_name}: {str(e)}"
+        checkpoint_manager.mark_failed(channel_id, error_msg)
+        return {
+            'success': False,
+            'channel_id': channel_id,
+            'error': error_msg
         }
     
     try:
@@ -206,6 +219,11 @@ def process_single_channel(
         # Marca como processado
         checkpoint_manager.mark_processed(channel_id)
         
+        # Limpa referências dos clientes
+        del youtube_extractor
+        del supabase_client
+        del api_key_manager
+        
         # Rate limiting
         time.sleep(config.RATE_LIMIT_DELAY)
         
@@ -227,19 +245,29 @@ def process_single_channel(
         }
 
 
-def check_quota(youtube_extractor: YouTubeExtractor) -> bool:
+def check_quota() -> bool:
     """Verifica se há quota suficiente para continuar"""
-    quota_info = youtube_extractor.get_quota_info()
-    remaining = quota_info['remaining']
-    
-    if remaining < config.QUOTA_STOP_THRESHOLD:
-        log(f"Quota muito baixa ({remaining}), parando processamento", "WARNING")
-        return False
-    
-    if remaining < config.QUOTA_WARNING_THRESHOLD:
-        log(f"Quota baixa ({remaining}), continuando com cuidado", "WARNING")
-    
-    return True
+    try:
+        api_key_manager = APIKeyManager()
+        youtube_extractor = YouTubeExtractor(api_key_manager)
+        quota_info = youtube_extractor.get_quota_info()
+        remaining = quota_info['remaining']
+        
+        if remaining < config.QUOTA_STOP_THRESHOLD:
+            log(f"Quota muito baixa ({remaining}), parando processamento", "WARNING")
+            del youtube_extractor
+            del api_key_manager
+            return False
+        
+        if remaining < config.QUOTA_WARNING_THRESHOLD:
+            log(f"Quota baixa ({remaining}), continuando com cuidado", "WARNING")
+        
+        del youtube_extractor
+        del api_key_manager
+        return True
+    except Exception as e:
+        log(f"Erro ao verificar quota: {e}, continuando...", "WARNING")
+        return True  # Continua mesmo se não conseguir verificar quota
 
 
 def update_all_channels(channel_ids: Optional[List[str]] = None):
@@ -253,16 +281,15 @@ def update_all_channels(channel_ids: Optional[List[str]] = None):
     checkpoint_manager = CheckpointManager(config.CHECKPOINT_FILE)
     
     try:
-        # Inicializa clientes
-        log("Inicializando clientes...")
-        api_key_manager = APIKeyManager()
-        youtube_extractor = YouTubeExtractor(api_key_manager)
-        supabase_client = SupabaseClient()
-        
         # Verifica quota inicial
-        if not check_quota(youtube_extractor):
+        log("Verificando quota da API...")
+        if not check_quota():
             log("Quota insuficiente para iniciar processamento", "ERROR")
             return
+        
+        # Inicializa cliente do Supabase apenas para buscar canais
+        log("Buscando canais...")
+        supabase_client = SupabaseClient()
         
         # Busca canais
         if channel_ids:
@@ -326,7 +353,7 @@ def update_all_channels(channel_ids: Optional[List[str]] = None):
             log(f"{'='*60}")
             
             # Verifica quota antes de processar lote
-            if not check_quota(youtube_extractor):
+            if not check_quota():
                 log("Parando processamento devido à quota baixa", "WARNING")
                 break
             
@@ -334,12 +361,11 @@ def update_all_channels(channel_ids: Optional[List[str]] = None):
             batch_results = []
             with ThreadPoolExecutor(max_workers=config.MAX_CONCURRENT_CHANNELS) as executor:
                 # Submete todas as tarefas
+                # Cada thread cria seus próprios clientes para evitar problemas de thread-safety
                 future_to_channel = {
                     executor.submit(
                         process_single_channel,
                         channel,
-                        youtube_extractor,
-                        supabase_client,
                         checkpoint_manager,
                         config.CHANNEL_TIMEOUT
                     ): channel
@@ -388,6 +414,9 @@ def update_all_channels(channel_ids: Optional[List[str]] = None):
             del batch_results
             del future_to_channel
             
+            # Força limpeza de memória
+            gc.collect()
+            
             # Salva checkpoint após cada batch
             checkpoint_manager.save_checkpoint()
             log(f"Checkpoint salvo após lote {batch_num + 1}")
@@ -395,6 +424,7 @@ def update_all_channels(channel_ids: Optional[List[str]] = None):
             # Pequeno delay entre batches para liberar memória
             if batch_num < total_batches - 1:
                 time.sleep(2)  # Aumentado para dar mais tempo ao GC
+                gc.collect()  # Limpeza adicional antes do próximo batch
         
         # Estatísticas finais
         elapsed_total = (datetime.now() - start_time).total_seconds()
@@ -412,10 +442,17 @@ def update_all_channels(channel_ids: Optional[List[str]] = None):
             log(f"Taxa de sucesso: {(total_updated/remaining_channels*100):.1f}%")
         
         # Exibe quota final
-        quota_info = youtube_extractor.get_quota_info()
-        log(f"\nQuota da API:")
-        log(f"  Usada: {quota_info['used']}/{quota_info['limit']} ({quota_info['percentage_used']:.1f}%)")
-        log(f"  Restante: {quota_info['remaining']} unidades")
+        try:
+            api_key_manager = APIKeyManager()
+            youtube_extractor = YouTubeExtractor(api_key_manager)
+            quota_info = youtube_extractor.get_quota_info()
+            log(f"\nQuota da API:")
+            log(f"  Usada: {quota_info['used']}/{quota_info['limit']} ({quota_info['percentage_used']:.1f}%)")
+            log(f"  Restante: {quota_info['remaining']} unidades")
+            del youtube_extractor
+            del api_key_manager
+        except Exception as e:
+            log(f"Não foi possível obter quota final: {e}", "WARNING")
         
         # Salva checkpoint final
         checkpoint_manager.save_checkpoint()
