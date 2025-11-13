@@ -34,7 +34,8 @@ def process_single_channel(
     channel: Channel,
     mode: str,
     channel_index: int,
-    total_channels: int
+    total_channels: int,
+    api_keys: list = None
 ) -> dict:
     """Processa um único canal e retorna estatísticas"""
     channel_stats = {
@@ -48,6 +49,19 @@ def process_single_channel(
     # Cria instâncias locais dos clientes para evitar problemas de thread-safety
     try:
         api_key_manager = APIKeyManager()
+        # Configura chaves das variáveis de ambiente se fornecidas
+        if api_keys:
+            api_key_manager.keys = api_keys
+            api_key_manager.current_key_index = 0
+            # Reinicializa quota_tracking com as novas chaves
+            api_key_manager.quota_tracking = {key: {'used': 0, 'exceeded': False} for key in api_keys}
+        
+        # Verifica se há chaves disponíveis
+        if not api_key_manager.has_available_keys():
+            log(f"  Nenhuma chave de API disponível para {channel.name}", "ERROR")
+            channel_stats['errors'] = 1
+            return channel_stats
+        
         youtube_extractor = YouTubeExtractor(api_key_manager)
         supabase_client = SupabaseClient()
     except Exception as e:
@@ -254,14 +268,15 @@ def run_extraction():
         # Processa canais em paralelo com 3 workers
         # Cada thread cria seus próprios clientes para evitar problemas de thread-safety
         with ThreadPoolExecutor(max_workers=3) as executor:
-            # Submete todas as tarefas
+            # Submete todas as tarefas, passando as chaves de API para cada thread
             future_to_channel = {
                 executor.submit(
                     process_single_channel,
                     channel,
                     mode,
                     i + 1,
-                    len(channels)
+                    len(channels),
+                    api_keys  # Passa as chaves carregadas das variáveis de ambiente
                 ): channel
                 for i, channel in enumerate(channels)
             }
