@@ -2,9 +2,13 @@ name: Atualizar Estatísticas dos Canais
 
 on:
   schedule:
-    # Executa diariamente às 23:30 BRT (02:30 UTC do dia seguinte)
-    # BRT = UTC-3, então 23:30 BRT = 02:30 UTC (próximo dia)
-    # Horário antecipado para garantir execução no fim do dia sem atrasos
+    # Executa 3 vezes ao dia:
+    # - 00:30 BRT (03:30 UTC) - Início do dia
+    # - 16:00 BRT (19:00 UTC) - Tarde
+    # - 23:30 BRT (02:30 UTC do dia seguinte) - Fim do dia
+    # BRT = UTC-3
+    - cron: '30 3 * * *'   # 00:30 BRT (03:30 UTC)
+    - cron: '0 19 * * *'   # 16:00 BRT (19:00 UTC)
     - cron: '30 2 * * *'   # 23:30 BRT (02:30 UTC do dia seguinte)
   
   # Permite execução manual (sempre processa todos os canais)
