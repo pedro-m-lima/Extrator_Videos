@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import time
+import threading
 from datetime import datetime, date
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError, as_completed
 from typing import List, Dict, Optional, Set
@@ -22,6 +23,7 @@ class CheckpointManager:
     def __init__(self, checkpoint_file: str):
         self.checkpoint_file = checkpoint_file
         self.checkpoint_data = self._load_checkpoint()
+        self._lock = threading.Lock()  # Lock para acesso thread-safe
     
     def _load_checkpoint(self) -> Dict:
         """Carrega checkpoint do arquivo"""
@@ -48,37 +50,44 @@ class CheckpointManager:
         }
     
     def save_checkpoint(self):
-        """Salva checkpoint no arquivo"""
-        try:
-            self.checkpoint_data['stats']['last_update'] = datetime.now().isoformat()
-            with open(self.checkpoint_file, 'w', encoding='utf-8') as f:
-                json.dump(self.checkpoint_data, f, indent=2)
-        except Exception as e:
-            print(f"Erro ao salvar checkpoint: {e}")
+        """Salva checkpoint no arquivo (thread-safe)"""
+        with self._lock:
+            try:
+                self.checkpoint_data['stats']['last_update'] = datetime.now().isoformat()
+                with open(self.checkpoint_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.checkpoint_data, f, indent=2)
+            except Exception as e:
+                print(f"Erro ao salvar checkpoint: {e}")
     
     def is_processed(self, channel_id: str) -> bool:
-        """Verifica se canal já foi processado"""
-        return channel_id in self.checkpoint_data['processed_channels']
+        """Verifica se canal já foi processado (thread-safe)"""
+        with self._lock:
+            return channel_id in self.checkpoint_data['processed_channels']
     
     def mark_processed(self, channel_id: str):
-        """Marca canal como processado"""
-        if channel_id not in self.checkpoint_data['processed_channels']:
-            self.checkpoint_data['processed_channels'].append(channel_id)
-            self.checkpoint_data['stats']['success'] += 1
+        """Marca canal como processado (thread-safe)"""
+        with self._lock:
+            if channel_id not in self.checkpoint_data['processed_channels']:
+                self.checkpoint_data['processed_channels'].append(channel_id)
+                self.checkpoint_data['stats']['success'] += 1
     
     def mark_failed(self, channel_id: str, error: str):
-        """Marca canal como falhado"""
-        if channel_id not in self.checkpoint_data['failed_channels']:
-            self.checkpoint_data['failed_channels'].append({
-                'channel_id': channel_id,
-                'error': str(error),
-                'timestamp': datetime.now().isoformat()
-            })
-            self.checkpoint_data['stats']['errors'] += 1
+        """Marca canal como falhado (thread-safe)"""
+        with self._lock:
+            # Verifica se já está na lista de falhados
+            existing = any(f.get('channel_id') == channel_id for f in self.checkpoint_data['failed_channels'])
+            if not existing:
+                self.checkpoint_data['failed_channels'].append({
+                    'channel_id': channel_id,
+                    'error': str(error),
+                    'timestamp': datetime.now().isoformat()
+                })
+                self.checkpoint_data['stats']['errors'] += 1
     
     def get_processed_channels(self) -> Set[str]:
-        """Retorna conjunto de canais já processados"""
-        return set(self.checkpoint_data['processed_channels'])
+        """Retorna conjunto de canais já processados (thread-safe)"""
+        with self._lock:
+            return set(self.checkpoint_data['processed_channels'])
     
     def clear_checkpoint(self):
         """Limpa checkpoint (para novo dia)"""
@@ -176,12 +185,23 @@ def process_single_channel(
             }
         
         # Insere ou atualiza métrica diária na tabela metrics
-        supabase_client.insert_or_update_metric(
-            channel_id=channel_id,
-            views=stats['views'],
-            subscribers=stats['subscribers'],
-            video_count=stats['video_count']
-        )
+        # Este método também atualiza a tabela channels automaticamente
+        try:
+            supabase_client.insert_or_update_metric(
+                channel_id=channel_id,
+                views=stats['views'],
+                subscribers=stats['subscribers'],
+                video_count=stats['video_count']
+            )
+        except Exception as e:
+            error_msg = f"Erro ao salvar métricas do canal {channel_name}: {str(e)}"
+            log(f"  {error_msg}", "ERROR")
+            checkpoint_manager.mark_failed(channel_id, error_msg)
+            return {
+                'success': False,
+                'channel_id': channel_id,
+                'error': error_msg
+            }
         
         # Marca como processado
         checkpoint_manager.mark_processed(channel_id)
@@ -364,13 +384,17 @@ def update_all_channels(channel_ids: Optional[List[str]] = None):
                         checkpoint_manager.mark_failed(channel.channel_id, error_msg)
                         log(f"[{processed_count}/{remaining_channels}] ✗ {channel.name}: {error_msg}", "ERROR")
             
+            # Limpa resultados do batch da memória
+            del batch_results
+            del future_to_channel
+            
             # Salva checkpoint após cada batch
             checkpoint_manager.save_checkpoint()
             log(f"Checkpoint salvo após lote {batch_num + 1}")
             
-            # Pequeno delay entre batches
+            # Pequeno delay entre batches para liberar memória
             if batch_num < total_batches - 1:
-                time.sleep(1)
+                time.sleep(2)  # Aumentado para dar mais tempo ao GC
         
         # Estatísticas finais
         elapsed_total = (datetime.now() - start_time).total_seconds()
@@ -423,14 +447,22 @@ if __name__ == "__main__":
             keys = [k.strip() for k in keys_str.split(',')]
             config.save_api_keys(keys)
     
-    # Verifica se foi especificado um canal específico via variável de ambiente
+    # No GitHub Actions, sempre processa todos os canais
+    # Remove suporte a CHANNEL_ID para evitar confusão
+    # Se precisar processar canais específicos, use o workflow manual com input
     channel_id_env = os.getenv("CHANNEL_ID")
     channel_ids = None
     
-    if channel_id_env:
+    # Apenas permite seleção de canal se explicitamente solicitado via workflow_dispatch
+    # Para execução agendada, sempre processa todos
+    if channel_id_env and channel_id_env.strip():
         # Suporta um único channel_id ou múltiplos separados por vírgula
         channel_ids = [cid.strip() for cid in channel_id_env.split(',') if cid.strip()]
-        log(f"Modo: Atualização de canal(is) específico(s): {len(channel_ids)} canal(is)", "INFO")
+        if channel_ids:
+            log(f"Modo: Atualização de canal(is) específico(s): {len(channel_ids)} canal(is)", "INFO")
+        else:
+            log("Modo: Atualização de todos os canais (CHANNEL_ID vazio)", "INFO")
+            channel_ids = None
     else:
         log("Modo: Atualização de todos os canais", "INFO")
     
