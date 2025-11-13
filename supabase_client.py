@@ -85,7 +85,7 @@ class SupabaseClient:
             # Se erro for de coluna não encontrada, tenta sem os campos opcionais
             if 'column' in error_str and 'not found' in error_str:
                 try:
-                    # Campos obrigatórios + duration (se coluna existir)
+                    # Campos obrigatórios básicos (sem campos opcionais que podem não existir)
                     required_fields = {
                         'channel_id': video_dict.get('channel_id'),
                         'video_id': video_dict.get('video_id'),
@@ -94,7 +94,6 @@ class SupabaseClient:
                         'likes': video_dict.get('likes', 0),
                         'comments': video_dict.get('comments', 0),
                         'published_at': video_dict.get('published_at'),
-                        'duration': video_dict.get('duration'),  # Inclui duration no formato ISO 8601
                     }
                     # Remove None values
                     required_fields = {k: v for k, v in required_fields.items() if v is not None}
@@ -287,7 +286,7 @@ class SupabaseClient:
         except Exception as e:
             error_str = str(e).lower()
             if 'column' in error_str and 'not found' in error_str:
-                # Se coluna não existe, tenta atualizar apenas campos básicos
+                # Se coluna não existe, tenta atualizar apenas campos básicos (sem campos opcionais)
                 try:
                     basic_fields = {
                         'title': video_dict.get('title'),
@@ -295,7 +294,6 @@ class SupabaseClient:
                         'likes': video_dict.get('likes', 0),
                         'comments': video_dict.get('comments', 0),
                         'published_at': video_dict.get('published_at'),
-                        'duration': video_dict.get('duration'),  # Inclui duration no formato ISO 8601
                     }
                     basic_fields = {k: v for k, v in basic_fields.items() if v is not None}
                     self.client.table('videos').update(basic_fields).eq('video_id', video.video_id).execute()
