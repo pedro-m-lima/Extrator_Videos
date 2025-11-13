@@ -5,6 +5,7 @@ Suporta processamento paralelo com 3 workers simultâneos
 """
 import sys
 import os
+import gc
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import config
@@ -31,8 +32,6 @@ def log(message: str, level: str = "INFO"):
 
 def process_single_channel(
     channel: Channel,
-    youtube_extractor: YouTubeExtractor,
-    supabase_client: SupabaseClient,
     mode: str,
     channel_index: int,
     total_channels: int
@@ -45,6 +44,16 @@ def process_single_channel(
         'existing': 0,
         'errors': 0
     }
+    
+    # Cria instâncias locais dos clientes para evitar problemas de thread-safety
+    try:
+        api_key_manager = APIKeyManager()
+        youtube_extractor = YouTubeExtractor(api_key_manager)
+        supabase_client = SupabaseClient()
+    except Exception as e:
+        log(f"  Erro ao inicializar clientes para {channel.name}: {e}", "ERROR")
+        channel_stats['errors'] = 1
+        return channel_stats
     
     try:
         log(f"[{channel_index}/{total_channels}] Processando: {channel.name} (ID: {channel.channel_id})")
@@ -154,6 +163,14 @@ def process_single_channel(
     except Exception as e:
         log(f"  [{channel_index}/{total_channels}] ✗ Erro ao processar canal {channel.name}: {e}", "ERROR")
         channel_stats['errors'] += 1
+    finally:
+        # Limpa referências dos clientes
+        try:
+            del youtube_extractor
+            del supabase_client
+            del api_key_manager
+        except:
+            pass
     
     return channel_stats
 
@@ -181,16 +198,6 @@ def run_extraction():
             log("Nenhuma chave de API configurada nas variáveis de ambiente!", "ERROR")
             return False
         
-        # Inicializa componentes
-        api_key_manager = APIKeyManager()
-        # Substitui chaves carregadas pelas do ambiente
-        if api_keys:
-            api_key_manager.keys = api_keys
-            api_key_manager.current_key_index = 0
-        
-        supabase_client = SupabaseClient()
-        youtube_extractor = YouTubeExtractor(api_key_manager)
-        
         # Determina modo baseado no horário atual (UTC no GitHub Actions)
         current_hour = datetime.utcnow().hour
         is_afternoon = is_afternoon_time(current_hour)
@@ -199,10 +206,20 @@ def run_extraction():
         mode = "RETROATIVA" if is_afternoon else "ATUAL"
         log(f"Iniciando extração - Modo: {mode}")
         
+        # Inicializa componentes apenas para buscar canais e verificar quota
+        api_key_manager = APIKeyManager()
+        # Substitui chaves carregadas pelas do ambiente
+        if api_keys:
+            api_key_manager.keys = api_keys
+            api_key_manager.current_key_index = 0
+        
         # Verifica se há chaves disponíveis
         if not api_key_manager.has_available_keys():
             log("Nenhuma chave de API disponível!", "ERROR")
             return False
+        
+        # Inicializa cliente do Supabase apenas para buscar canais
+        supabase_client = SupabaseClient()
         
         # Busca canais
         if mode == "RETROATIVA":
@@ -211,6 +228,11 @@ def run_extraction():
         else:
             channels = supabase_client.get_channels()
             log(f"Encontrados {len(channels)} canais para processar")
+        
+        # Limpa referências dos clientes principais (cada thread criará os seus)
+        del supabase_client
+        del api_key_manager
+        gc.collect()
         
         if not channels:
             log("Nenhum canal encontrado")
@@ -230,14 +252,13 @@ def run_extraction():
         total_errors = 0
         
         # Processa canais em paralelo com 3 workers
+        # Cada thread cria seus próprios clientes para evitar problemas de thread-safety
         with ThreadPoolExecutor(max_workers=3) as executor:
             # Submete todas as tarefas
             future_to_channel = {
                 executor.submit(
                     process_single_channel,
                     channel,
-                    youtube_extractor,
-                    supabase_client,
                     mode,
                     i + 1,
                     len(channels)
@@ -257,16 +278,30 @@ def run_extraction():
                 except Exception as e:
                     log(f"Erro ao processar resultado do canal {channel.name}: {e}", "ERROR")
                     total_errors += 1
+            
+            # Limpa referências
+            del future_to_channel
+            gc.collect()
         
         log(f"Extração concluída! Total: {total_videos} vídeos ({total_new} novos, {total_existing} já existentes, {total_errors} erros)", "SUCCESS")
         
-        # Exibe informações de quota
-        quota_info = youtube_extractor.get_quota_info()
-        log(f"Quota da API: {quota_info['used']}/{quota_info['limit']} usada ({quota_info['percentage_used']:.1f}%)", "INFO")
-        log(f"Quota restante: {quota_info['remaining']} unidades", "INFO")
-        breakdown = quota_info['breakdown']
-        if breakdown['channels_list'] > 0 or breakdown['playlist_items'] > 0 or breakdown['videos_list'] > 0:
-            log(f"Detalhamento: channels.list={breakdown['channels_list']}, playlistItems.list={breakdown['playlist_items']}, videos.list={breakdown['videos_list']}", "INFO")
+        # Exibe informações de quota (cria instância temporária)
+        try:
+            api_key_manager = APIKeyManager()
+            if api_keys:
+                api_key_manager.keys = api_keys
+                api_key_manager.current_key_index = 0
+            youtube_extractor = YouTubeExtractor(api_key_manager)
+            quota_info = youtube_extractor.get_quota_info()
+            log(f"Quota da API: {quota_info['used']}/{quota_info['limit']} usada ({quota_info['percentage_used']:.1f}%)", "INFO")
+            log(f"Quota restante: {quota_info['remaining']} unidades", "INFO")
+            breakdown = quota_info['breakdown']
+            if breakdown['channels_list'] > 0 or breakdown['playlist_items'] > 0 or breakdown['videos_list'] > 0:
+                log(f"Detalhamento: channels.list={breakdown['channels_list']}, playlistItems.list={breakdown['playlist_items']}, videos.list={breakdown['videos_list']}", "INFO")
+            del youtube_extractor
+            del api_key_manager
+        except Exception as e:
+            log(f"Não foi possível obter informações de quota: {e}", "WARNING")
         
         return True
         
