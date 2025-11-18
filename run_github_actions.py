@@ -12,7 +12,7 @@ import config
 from api_key_manager import APIKeyManager
 from supabase_client import SupabaseClient
 from youtube_extractor import YouTubeExtractor
-from utils import is_afternoon_time, is_night_time, parse_datetime, format_datetime
+from utils import parse_datetime, format_datetime
 from models import Channel
 
 
@@ -79,54 +79,20 @@ def process_single_channel(
             channel_stats['errors'] = 1
             return channel_stats
         
-        if mode == "RETROATIVA":
-            # Busca vídeos antigos retroativamente
-            start_date = channel.oldest_video_date if channel.oldest_video_date else channel.newest_video_date
-            
-            if config.FETCH_ALL_VIDEOS_AT_ONCE:
-                # Busca TODOS os vídeos de uma vez
-                if start_date:
-                    log(f"  Buscando TODOS os vídeos retroativamente a partir de {start_date}")
-                else:
-                    log(f"  Buscando TODOS os vídeos do canal (primeira busca completa)")
-                
-                videos_data = youtube_extractor.get_all_videos_from_playlist(
-                    playlist_id, start_date
-                )
-                
-                if not videos_data:
-                    log(f"  Nenhum vídeo encontrado. Canal pode estar completo.")
-                    return channel_stats
-                
-                log(f"  Encontrados {len(videos_data)} vídeos no total")
-            else:
-                # Busca gradual (50 por vez)
-                if start_date:
-                    log(f"  Buscando vídeos retroativamente a partir de {start_date} (50 por execução)")
-                else:
-                    log(f"  Buscando vídeos retroativamente (primeira busca - sem data inicial, 50 por execução)")
-                
-                videos_data = youtube_extractor.get_old_videos_retroactive(
-                    playlist_id, start_date, max_videos=config.MAX_VIDEOS_PER_EXECUTION
-                )
-                
-                if not videos_data:
-                    log(f"  Nenhum vídeo antigo encontrado. Verificando se canal está completo...")
-                    return channel_stats
-                
-                log(f"  Encontrados {len(videos_data)} vídeos antigos (busca gradual)")
+        # Sempre busca vídeos novos (MODO ATUAL)
+        since_date = channel.newest_video_date
+        if since_date:
+            log(f"  [MODO ATUAL] Buscando vídeos novos desde {since_date}")
         else:
-            # Busca vídeos novos
-            since_date = channel.newest_video_date
-            log(f"  Buscando vídeos novos desde {since_date}")
-            
-            videos_data = youtube_extractor.get_new_videos(playlist_id, since_date)
-            
-            if not videos_data:
-                log(f"  Nenhum vídeo novo encontrado")
-                return channel_stats
-            
-            log(f"  Encontrados {len(videos_data)} vídeos novos")
+            log(f"  [MODO ATUAL] Buscando vídeos novos (primeira busca - sem data inicial)")
+        
+        videos_data = youtube_extractor.get_new_videos(playlist_id, since_date)
+        
+        if not videos_data:
+            log(f"  Nenhum vídeo novo encontrado")
+            return channel_stats
+        
+        log(f"  Encontrados {len(videos_data)} vídeos novos")
         
         # Processa vídeos
         videos = youtube_extractor.process_videos(videos_data, channel.channel_id)
@@ -156,21 +122,26 @@ def process_single_channel(
             else:
                 channel_stats['errors'] += 1
         
-        # Atualiza datas do canal
-        update_oldest = None
+        # Atualiza datas do canal (sempre modo ATUAL - atualiza newest_date)
         update_newest = None
         
-        if mode == "RETROATIVA" and oldest_date:
-            update_oldest = format_datetime(oldest_date)
-        elif mode == "ATUAL" and newest_date:
+        if newest_date:
+            # Busca atual: atualiza newest_date
             update_newest = format_datetime(newest_date)
-        
-        if update_oldest or update_newest:
-            supabase_client.update_channel_dates(
-                channel.channel_id,
-                oldest_date=update_oldest,
-                newest_date=update_newest
-            )
+            
+            # Compara com data atual do canal
+            current_oldest, current_newest = supabase_client.get_channel_video_dates(channel.channel_id)
+            
+            newest_str = format_datetime(newest_date)
+            if not current_newest or newest_date > parse_datetime(current_newest):
+                update_newest = newest_str
+                
+                if update_newest:
+                    supabase_client.update_channel_dates(
+                        channel.channel_id,
+                        oldest_date=None,
+                        newest_date=update_newest
+                    )
         
         log(f"  [{channel_index}/{total_channels}] ✓ {channel.name}: {channel_stats['new']} novos, {channel_stats['existing']} já existentes", "SUCCESS")
         
@@ -212,13 +183,11 @@ def run_extraction():
             log("Nenhuma chave de API configurada nas variáveis de ambiente!", "ERROR")
             return False
         
-        # Determina modo baseado no horário atual (UTC no GitHub Actions)
-        current_hour = datetime.utcnow().hour
-        is_afternoon = is_afternoon_time(current_hour)
-        is_night = is_night_time(current_hour)
-        
-        mode = "RETROATIVA" if is_afternoon else "ATUAL"
-        log(f"Iniciando extração - Modo: {mode}")
+        # Sempre usa modo ATUAL para extração (busca vídeos novos)
+        mode = "ATUAL"
+        log("=" * 60)
+        log(f"Iniciando extração - Modo: {mode} (FORÇADO - sempre busca vídeos novos)")
+        log("=" * 60)
         
         # Inicializa componentes apenas para buscar canais e verificar quota
         api_key_manager = APIKeyManager()
@@ -235,13 +204,9 @@ def run_extraction():
         # Inicializa cliente do Supabase apenas para buscar canais
         supabase_client = SupabaseClient()
         
-        # Busca canais
-        if mode == "RETROATIVA":
-            channels = supabase_client.get_channels_needing_old_videos()
-            log(f"Encontrados {len(channels)} canais que precisam de vídeos antigos")
-        else:
-            channels = supabase_client.get_channels()
-            log(f"Encontrados {len(channels)} canais para processar")
+        # Busca canais (sempre modo ATUAL - busca todos os canais)
+        channels = supabase_client.get_channels()
+        log(f"Encontrados {len(channels)} canais para processar")
         
         # Limpa referências dos clientes principais (cada thread criará os seus)
         del supabase_client
