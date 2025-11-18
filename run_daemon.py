@@ -82,13 +82,9 @@ class ExtractorDaemon:
             # Reconstrói extrator com chave atual
             self.youtube_extractor = YouTubeExtractor(self.api_key_manager)
             
-            # Busca canais
-            if mode == "RETROATIVA":
-                channels = self.supabase_client.get_channels_needing_old_videos()
-                self.log(f"Encontrados {len(channels)} canais que precisam de vídeos antigos")
-            else:
-                channels = self.supabase_client.get_channels()
-                self.log(f"Encontrados {len(channels)} canais para processar")
+            # Busca canais (sempre modo ATUAL - busca todos os canais)
+            channels = self.supabase_client.get_channels()
+            self.log(f"Encontrados {len(channels)} canais para processar")
             
             if not channels:
                 self.log("Nenhum canal encontrado")
@@ -119,50 +115,20 @@ class ExtractorDaemon:
                         self.log(f"  Erro: Não foi possível obter playlist do canal", "ERROR")
                         continue
                     
-                    if mode == "RETROATIVA":
-                        start_date = channel.oldest_video_date if channel.oldest_video_date else channel.newest_video_date
-                        
-                        if config.FETCH_ALL_VIDEOS_AT_ONCE:
-                            if start_date:
-                                self.log(f"  Buscando TODOS os vídeos retroativamente a partir de {start_date}")
-                            else:
-                                self.log(f"  Buscando TODOS os vídeos do canal (primeira busca completa)")
-                            
-                            videos_data = self.youtube_extractor.get_all_videos_from_playlist(
-                                playlist_id, start_date
-                            )
-                            
-                            if not videos_data:
-                                self.log(f"  Nenhum vídeo encontrado. Canal pode estar completo.")
-                                continue
-                            
-                            self.log(f"  Encontrados {len(videos_data)} vídeos no total")
-                        else:
-                            if start_date:
-                                self.log(f"  Buscando vídeos retroativamente a partir de {start_date} (50 por execução)")
-                            else:
-                                self.log(f"  Buscando vídeos retroativamente (primeira busca - sem data inicial, 50 por execução)")
-                            
-                            videos_data = self.youtube_extractor.get_old_videos_retroactive(
-                                playlist_id, start_date, max_videos=config.MAX_VIDEOS_PER_EXECUTION
-                            )
-                            
-                            if not videos_data:
-                                self.log(f"  Nenhum vídeo antigo encontrado. Verificando se canal está completo...")
-                                continue
-                            
-                            self.log(f"  Encontrados {len(videos_data)} vídeos antigos (busca gradual)")
+                    # Sempre busca vídeos novos (MODO ATUAL)
+                    since_date = channel.newest_video_date
+                    if since_date:
+                        self.log(f"  [MODO ATUAL] Buscando vídeos novos desde {since_date}")
                     else:
-                        since_date = channel.newest_video_date
-                        self.log(f"  Buscando vídeos novos desde {since_date}")
-                        
-                        videos_data = self.youtube_extractor.get_new_videos(playlist_id, since_date)
-                        
-                        if not videos_data:
-                            self.log(f"  Nenhum vídeo novo encontrado")
-                            continue
-                        
-                        self.log(f"  Encontrados {len(videos_data)} vídeos novos")
+                        self.log(f"  [MODO ATUAL] Buscando vídeos novos (primeira busca - sem data inicial)")
+                    
+                    videos_data = self.youtube_extractor.get_new_videos(playlist_id, since_date)
+                    
+                    if not videos_data:
+                        self.log(f"  Nenhum vídeo novo encontrado")
+                        continue
+                    
+                    self.log(f"  Encontrados {len(videos_data)} vídeos novos")
                     
                     # Processa vídeos
                     videos = self.youtube_extractor.process_videos(videos_data, channel.channel_id)
@@ -191,32 +157,24 @@ class ExtractorDaemon:
                                     if not newest_date or pub_date > newest_date:
                                         newest_date = pub_date
                     
-                    # Atualiza datas do canal
-                    update_oldest = None
+                    # Atualiza datas do canal (sempre modo ATUAL - atualiza newest_date)
                     update_newest = None
                     
-                    if mode == "RETROATIVA" and oldest_date:
-                        update_oldest = format_datetime(oldest_date)
-                    elif mode == "ATUAL" and newest_date:
+                    if newest_date:
+                        # Busca atual: atualiza newest_date
                         update_newest = format_datetime(newest_date)
-                    
-                    if oldest_date or newest_date:
+                        
+                        # Compara com data atual do canal
                         current_oldest, current_newest = self.supabase_client.get_channel_video_dates(channel.channel_id)
                         
-                        if oldest_date:
-                            oldest_str = format_datetime(oldest_date)
-                            if not current_oldest or oldest_date < parse_datetime(current_oldest):
-                                update_oldest = oldest_str
-                        
-                        if newest_date:
-                            newest_str = format_datetime(newest_date)
-                            if not current_newest or newest_date > parse_datetime(current_newest):
-                                update_newest = newest_str
-                        
-                        if update_oldest or update_newest:
-                            self.supabase_client.update_channel_dates(
-                                channel.channel_id, update_oldest, update_newest
-                            )
+                        newest_str = format_datetime(newest_date)
+                        if not current_newest or newest_date > parse_datetime(current_newest):
+                            update_newest = newest_str
+                            
+                            if update_newest:
+                                self.supabase_client.update_channel_dates(
+                                    channel.channel_id, None, update_newest
+                                )
                     
                     self.log(f"  Canal processado: {total_new} novos, {total_existing} já existentes", "SUCCESS")
                     
