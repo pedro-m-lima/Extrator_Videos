@@ -10,7 +10,7 @@ from supabase_client import SupabaseClient
 from youtube_extractor import YouTubeExtractor
 from youtube_updater import YouTubeUpdater
 from scheduler import TaskScheduler
-from utils import is_afternoon_time, is_night_time, parse_datetime, format_datetime
+from utils import parse_datetime, format_datetime
 
 
 class ExtractorCLI:
@@ -49,12 +49,8 @@ class ExtractorCLI:
         self.stop_requested = False
         
         try:
-            # Determina modo baseado no horário atual
-            current_hour = datetime.now().hour
-            is_afternoon = is_afternoon_time(current_hour)
-            is_night = is_night_time(current_hour)
-            
-            mode = "RETROATIVA" if is_afternoon else "ATUAL"
+            # Sempre usa modo ATUAL para extração manual e agendada
+            mode = "ATUAL"
             self.log(f"Iniciando extração - Modo: {mode}")
             
             # Verifica se há chaves disponíveis
