@@ -303,4 +303,36 @@ class SupabaseClient:
                     return False
             print(f"Erro ao atualizar vídeo {video.video_id}: {e}")
             return False
+    
+    def get_videos_by_channel(self, channel_id: str) -> List[Video]:
+        """Busca todos os vídeos de um canal específico (com paginação)"""
+        all_videos = []
+        page_size = 1000  # Limite máximo do Supabase por página
+        start = 0
+        end = page_size - 1
+        
+        try:
+            while True:
+                # Busca página atual usando range (inclusivo: start até end)
+                response = self.client.table('videos').select('*').eq('channel_id', channel_id).range(start, end).execute()
+                
+                if not response.data:
+                    break
+                
+                # Converte para objetos Video
+                page_videos = [Video.from_dict(video) for video in response.data]
+                all_videos.extend(page_videos)
+                
+                # Se retornou menos que o tamanho da página, chegou ao fim
+                if len(response.data) < page_size:
+                    break
+                
+                # Próxima página
+                start += page_size
+                end += page_size
+            
+            return all_videos
+        except Exception as e:
+            print(f"Erro ao buscar vídeos do canal {channel_id}: {e}")
+            return all_videos
 

@@ -8,6 +8,7 @@ import config
 from api_key_manager import APIKeyManager
 from supabase_client import SupabaseClient
 from youtube_extractor import YouTubeExtractor
+from youtube_updater import YouTubeUpdater
 from scheduler import TaskScheduler
 from utils import is_afternoon_time, is_night_time, parse_datetime, format_datetime
 
@@ -85,6 +86,7 @@ class ExtractorCLI:
             total_videos = 0
             total_new = 0
             total_existing = 0
+            processed_channels = []  # Lista de canais processados para atualização
             
             for i, channel in enumerate(channels):
                 if self.stop_requested:
@@ -212,6 +214,9 @@ class ExtractorCLI:
                     
                     self.log(f"  Canal processado: {total_new} novos, {total_existing} já existentes", "SUCCESS")
                     
+                    # Adiciona canal à lista de processados
+                    processed_channels.append(channel.channel_id)
+                    
                     # Pausa entre canais
                     time.sleep(config.CHANNEL_DELAY)
                     
@@ -229,6 +234,24 @@ class ExtractorCLI:
                 breakdown = quota_info['breakdown']
                 if breakdown['channels_list'] > 0 or breakdown['playlist_items'] > 0 or breakdown['videos_list'] > 0:
                     self.log(f"Detalhamento: channels.list={breakdown['channels_list']}, playlistItems.list={breakdown['playlist_items']}, videos.list={breakdown['videos_list']}", "INFO")
+            
+            # Atualiza vídeos dos canais processados
+            if processed_channels and not self.stop_requested:
+                try:
+                    self.log("=" * 60)
+                    self.log("Iniciando atualização de vídeos existentes...")
+                    youtube_updater = YouTubeUpdater(self.api_key_manager, self.supabase_client)
+                    total_stats = youtube_updater.update_all_channels_videos(processed_channels, log_callback=self.log)
+                    
+                    self.log("=" * 60)
+                    self.log(f"Atualização de vídeos concluída!", "SUCCESS")
+                    self.log(f"Total processados: {total_stats['total']}, Atualizados: {total_stats['updated']}, Sem mudanças: {total_stats['unchanged']}")
+                    
+                    # Exibe quota do atualizador
+                    updater_quota = youtube_updater.get_quota_info()
+                    self.log(f"Quota adicional usada: {updater_quota['used']} unidades")
+                except Exception as e:
+                    self.log(f"Erro ao atualizar vídeos: {e}", "ERROR")
             
         except Exception as e:
             self.log(f"Erro na extração: {e}", "ERROR")
