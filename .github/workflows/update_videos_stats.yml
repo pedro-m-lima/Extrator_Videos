@@ -21,7 +21,11 @@ on:
   workflow_dispatch:
     inputs:
       channel_ids:
-        description: 'IDs dos canais (separados por vírgula) ou deixe vazio para divisão automática'
+        description: 'IDs dos canais (separados por vírgula) ou deixe vazio para usar slots'
+        required: false
+        type: string
+      slots:
+        description: 'Números dos slots para executar (ex: 1,2,3 ou 1-3). Deixe vazio para slot automático baseado na hora'
         required: false
         type: string
 
@@ -50,8 +54,15 @@ jobs:
         YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
         CHANNEL_IDS: ${{ inputs.channel_ids }}
+        SLOTS: ${{ inputs.slots }}
       run: |
-        python update_videos_stats.py
+        # Se foi executado manualmente (workflow_dispatch), usa script manual
+        # Se foi executado via schedule, usa script automático
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          python update_videos_stats_manual.py
+        else
+          python update_videos_stats.py
+        fi
     
     - name: Upload logs (se houver erro)
       if: failure()
