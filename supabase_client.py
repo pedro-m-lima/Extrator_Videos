@@ -305,34 +305,133 @@ class SupabaseClient:
             return False
     
     def get_videos_by_channel(self, channel_id: str) -> List[Video]:
-        """Busca todos os vídeos de um canal específico (com paginação)"""
+        """
+        Busca todos os vídeos de um canal específico (com paginação completa)
+        Garante cobertura de todos os vídeos, mesmo canais com mais de 20 mil vídeos
+        
+        Args:
+            channel_id: ID do canal
+        
+        Returns:
+            Lista completa de todos os vídeos do canal
+        """
         all_videos = []
-        page_size = 1000  # Limite máximo do Supabase por página
+        page_size = 999  # Limite seguro do Supabase por página (usa 999 ao invés de 1000)
         start = 0
         end = page_size - 1
+        page_num = 0
         
         try:
+            print(f"Buscando vídeos do canal {channel_id} com paginação...")
+            
             while True:
+                page_num += 1
+                
                 # Busca página atual usando range (inclusivo: start até end)
                 response = self.client.table('videos').select('*').eq('channel_id', channel_id).range(start, end).execute()
                 
-                if not response.data:
+                # Se não retornou dados, chegou ao fim
+                if not response.data or len(response.data) == 0:
+                    print(f"  Página {page_num}: Nenhum dado retornado. Total de vídeos encontrados: {len(all_videos)}")
                     break
                 
                 # Converte para objetos Video
                 page_videos = [Video.from_dict(video) for video in response.data]
                 all_videos.extend(page_videos)
                 
+                print(f"  Página {page_num}: {len(page_videos)} vídeos (total acumulado: {len(all_videos)})")
+                
                 # Se retornou menos que o tamanho da página, chegou ao fim
                 if len(response.data) < page_size:
+                    print(f"  Última página completa. Total final: {len(all_videos)} vídeos")
                     break
                 
+                # Se retornou exatamente o tamanho da página, pode haver mais páginas
                 # Próxima página
                 start += page_size
                 end += page_size
+                
+                # Proteção contra loop infinito (caso raro)
+                if page_num > 1000:  # Limite de segurança: 1000 páginas = ~999.000 vídeos
+                    print(f"  AVISO: Limite de páginas atingido (1000). Total coletado: {len(all_videos)} vídeos")
+                    break
             
+            print(f"Busca completa: {len(all_videos)} vídeos encontrados em {page_num} página(s)")
             return all_videos
+            
         except Exception as e:
-            print(f"Erro ao buscar vídeos do canal {channel_id}: {e}")
+            print(f"Erro ao buscar vídeos do canal {channel_id} na página {page_num}: {e}")
+            print(f"Vídeos coletados até o erro: {len(all_videos)}")
+            import traceback
+            traceback.print_exc()
+            return all_videos
+    
+    def get_all_videos(self, limit: Optional[int] = None) -> List[Video]:
+        """
+        Busca todos os vídeos do banco com paginação completa
+        Valida mais de 999 registros por página, garantindo cobertura completa
+        
+        Args:
+            limit: Número máximo de vídeos a retornar (None = todos)
+        
+        Returns:
+            Lista de todos os vídeos
+        """
+        all_videos = []
+        page_size = 999  # Limite seguro do Supabase por página
+        start = 0
+        end = page_size - 1
+        page_num = 0
+        
+        try:
+            print(f"Buscando todos os vídeos do banco com paginação...")
+            
+            while True:
+                page_num += 1
+                
+                # Busca página atual usando range (inclusivo: start até end)
+                query = self.client.table('videos').select('*').range(start, end)
+                response = query.execute()
+                
+                # Se não retornou dados, chegou ao fim
+                if not response.data or len(response.data) == 0:
+                    print(f"  Página {page_num}: Nenhum dado retornado. Total de vídeos encontrados: {len(all_videos)}")
+                    break
+                
+                # Converte para objetos Video
+                page_videos = [Video.from_dict(video) for video in response.data]
+                all_videos.extend(page_videos)
+                
+                print(f"  Página {page_num}: {len(page_videos)} vídeos (total acumulado: {len(all_videos)})")
+                
+                # Se retornou menos que o tamanho da página, chegou ao fim
+                if len(response.data) < page_size:
+                    print(f"  Última página completa. Total final: {len(all_videos)} vídeos")
+                    break
+                
+                # Se atingiu o limite solicitado, para
+                if limit and len(all_videos) >= limit:
+                    all_videos = all_videos[:limit]
+                    print(f"  Limite atingido: {limit} vídeos")
+                    break
+                
+                # Se retornou exatamente o tamanho da página, pode haver mais páginas
+                # Próxima página
+                start += page_size
+                end += page_size
+                
+                # Proteção contra loop infinito (caso raro)
+                if page_num > 1000:  # Limite de segurança: 1000 páginas = ~999.000 vídeos
+                    print(f"  AVISO: Limite de páginas atingido (1000). Total coletado: {len(all_videos)} vídeos")
+                    break
+            
+            print(f"Busca completa: {len(all_videos)} vídeos encontrados em {page_num} página(s)")
+            return all_videos
+            
+        except Exception as e:
+            print(f"Erro ao buscar todos os vídeos na página {page_num}: {e}")
+            print(f"Vídeos coletados até o erro: {len(all_videos)}")
+            import traceback
+            traceback.print_exc()
             return all_videos
 

@@ -1,0 +1,64 @@
+name: Atualizar Estatísticas dos Vídeos
+
+on:
+  schedule:
+    # Executa a cada 2 horas (12 vezes por dia)
+    # UTC times (BRT = UTC-3)
+    - cron: '0 0 * * *'   # 00:00 UTC (21:00 BRT do dia anterior)
+    - cron: '0 2 * * *'   # 02:00 UTC (23:00 BRT do dia anterior)
+    - cron: '0 4 * * *'   # 04:00 UTC (01:00 BRT)
+    - cron: '0 6 * * *'   # 06:00 UTC (03:00 BRT)
+    - cron: '0 8 * * *'   # 08:00 UTC (05:00 BRT)
+    - cron: '0 10 * * *'  # 10:00 UTC (07:00 BRT)
+    - cron: '0 12 * * *'  # 12:00 UTC (09:00 BRT)
+    - cron: '0 14 * * *'  # 14:00 UTC (11:00 BRT)
+    - cron: '0 16 * * *'  # 16:00 UTC (13:00 BRT)
+    - cron: '0 18 * * *'  # 18:00 UTC (15:00 BRT)
+    - cron: '0 20 * * *'  # 20:00 UTC (17:00 BRT)
+    - cron: '0 22 * * *'  # 22:00 UTC (19:00 BRT)
+  
+  # Permite execução manual
+  workflow_dispatch:
+    inputs:
+      channel_ids:
+        description: 'IDs dos canais (separados por vírgula) ou deixe vazio para divisão automática'
+        required: false
+        type: string
+
+jobs:
+  update_videos:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+    
+    - name: Configurar Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Instalar dependências
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Atualizar estatísticas dos vídeos
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
+        CHANNEL_IDS: ${{ inputs.channel_ids }}
+      run: |
+        python update_videos_stats.py
+    
+    - name: Upload logs (se houver erro)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: video-stats-update-logs
+        path: |
+          *.log
+          extrator.log
+
