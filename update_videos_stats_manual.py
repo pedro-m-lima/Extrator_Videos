@@ -1,12 +1,12 @@
 """
 Script MANUAL para atualizar estatísticas de vídeos (views, likes, comments)
-Executa atualização completa de TODOS os canais de uma vez
-Versão para execução manual - não divide por hora
+Permite escolher qual slot executar manualmente
+Versão para execução manual - usuário escolhe o slot
 """
 import sys
 import os
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Set
 import config
 from api_key_manager import APIKeyManager
 from supabase_client import SupabaseClient
@@ -28,18 +28,182 @@ def log(message: str, level: str = "INFO"):
     sys.stdout.flush()
 
 
-def run_update_videos_stats_manual(channel_ids: Optional[List[str]] = None):
+def get_channels_for_slot(all_channels: List[Channel], slot: int, total_slots: int = 12) -> List[Channel]:
+    """
+    Obtém canais de um slot específico
+    
+    Args:
+        all_channels: Lista de todos os canais
+        slot: Número do slot (0-11)
+        total_slots: Número total de slots (padrão 12)
+    
+    Returns:
+        Lista de canais do slot especificado
+    """
+    if not all_channels:
+        return []
+    
+    if slot < 0 or slot >= total_slots:
+        return []
+    
+    # Calcula quantos canais processar por slot
+    channels_per_slot = (len(all_channels) + total_slots - 1) // total_slots  # Arredonda para cima
+    
+    # Calcula índice inicial e final
+    start_idx = slot * channels_per_slot
+    end_idx = min(start_idx + channels_per_slot, len(all_channels))
+    
+    channels_to_process = all_channels[start_idx:end_idx]
+    
+    return channels_to_process
+
+
+def display_slots_info(all_channels: List[Channel], total_slots: int = 12):
+    """
+    Exibe informações sobre os slots disponíveis
+    
+    Args:
+        all_channels: Lista de todos os canais
+        total_slots: Número total de slots
+    """
+    log("=" * 60)
+    log("INFORMAÇÕES DOS SLOTS", "INFO")
+    log("=" * 60)
+    log(f"Total de canais: {len(all_channels)}")
+    log(f"Total de slots: {total_slots}")
+    
+    channels_per_slot = (len(all_channels) + total_slots - 1) // total_slots
+    
+    log("\nDistribuição dos slots:")
+    for slot in range(total_slots):
+        start_idx = slot * channels_per_slot
+        end_idx = min(start_idx + channels_per_slot, len(all_channels))
+        num_channels = end_idx - start_idx
+        
+        if num_channels > 0:
+            log(f"  Slot {slot + 1}: Canais {start_idx + 1} a {end_idx} ({num_channels} canais)")
+    
+    log("=" * 60)
+
+
+def parse_slot_input(user_input: str, total_slots: int = 12) -> Set[int]:
+    """
+    Parse do input do usuário para slots
+    
+    Args:
+        user_input: String com slots separados por vírgula (ex: "1,2,3" ou "1-3")
+        total_slots: Número total de slots
+    
+    Returns:
+        Set com números dos slots (0-indexed)
+    """
+    slots = set()
+    
+    # Remove espaços
+    user_input = user_input.strip()
+    
+    if not user_input:
+        return slots
+    
+    # Processa cada parte separada por vírgula
+    parts = [p.strip() for p in user_input.split(',')]
+    
+    for part in parts:
+        # Verifica se é um range (ex: "1-3")
+        if '-' in part:
+            try:
+                start, end = part.split('-')
+                start_slot = int(start.strip()) - 1  # Converte para 0-indexed
+                end_slot = int(end.strip())  # Mantém 1-indexed para incluir o último
+                
+                # Valida range
+                if start_slot < 0 or end_slot > total_slots or start_slot >= end_slot:
+                    log(f"Range inválido: {part}", "ERROR")
+                    continue
+                
+                # Adiciona todos os slots do range
+                for slot in range(start_slot, end_slot):
+                    if 0 <= slot < total_slots:
+                        slots.add(slot)
+            except ValueError:
+                log(f"Formato inválido: {part}", "ERROR")
+                continue
+        else:
+            # É um número único
+            try:
+                slot = int(part) - 1  # Converte para 0-indexed
+                if 0 <= slot < total_slots:
+                    slots.add(slot)
+                else:
+                    log(f"Slot {slot + 1} fora do range válido (1-{total_slots})", "ERROR")
+            except ValueError:
+                log(f"Valor inválido: {part}", "ERROR")
+                continue
+    
+    return slots
+
+
+def get_user_slot_selection(all_channels: List[Channel], total_slots: int = 12) -> Set[int]:
+    """
+    Solicita ao usuário qual slot(s) executar
+    
+    Args:
+        all_channels: Lista de todos os canais
+        total_slots: Número total de slots
+    
+    Returns:
+        Set com números dos slots selecionados (0-indexed)
+    """
+    display_slots_info(all_channels, total_slots)
+    
+    log("\nSelecione o(s) slot(s) para executar:", "INFO")
+    log("  - Digite o número do slot (ex: 1, 2, 3)", "INFO")
+    log("  - Ou múltiplos slots separados por vírgula (ex: 1,2,3)", "INFO")
+    log("  - Ou um range (ex: 1-3 para slots 1, 2 e 3)", "INFO")
+    log("  - Ou combine ambos (ex: 1,3,5-7)", "INFO")
+    log("  - Digite 'all' para todos os slots", "INFO")
+    log("  - Digite 'q' para sair", "INFO")
+    
+    while True:
+        try:
+            user_input = input("\nSlot(s): ").strip().lower()
+            
+            if user_input == 'q' or user_input == 'quit':
+                log("Execução cancelada pelo usuário", "WARNING")
+                sys.exit(0)
+            
+            if user_input == 'all':
+                return set(range(total_slots))
+            
+            slots = parse_slot_input(user_input, total_slots)
+            
+            if not slots:
+                log("Nenhum slot válido selecionado. Tente novamente.", "ERROR")
+                continue
+            
+            return slots
+            
+        except KeyboardInterrupt:
+            log("\nExecução cancelada pelo usuário", "WARNING")
+            sys.exit(0)
+        except Exception as e:
+            log(f"Erro ao processar input: {e}", "ERROR")
+            continue
+
+
+def run_update_videos_stats_manual(channel_ids: Optional[List[str]] = None, slots: Optional[List[int]] = None):
     """
     Executa atualização MANUAL de estatísticas de vídeos (views, likes, comments)
     Varre todos os vídeos dos canais e atualiza apenas os que têm mudanças
-    VERSÃO MANUAL: Processa TODOS os canais de uma vez, sem divisão por hora
+    VERSÃO MANUAL: Usuário escolhe qual slot executar
     
     Args:
-        channel_ids: Lista de IDs de canais para atualizar. Se None, atualiza TODOS os canais.
+        channel_ids: Lista de IDs de canais para atualizar. Se None, permite escolher slots.
+        slots: Lista de slots para executar (0-indexed). Se None, solicita ao usuário.
     """
     try:
         log("=" * 60)
-        log("MODO MANUAL: Atualização completa de todos os canais", "INFO")
+        log("MODO MANUAL: Atualização por slot selecionado", "INFO")
         log("=" * 60)
         
         # Carrega configurações de variáveis de ambiente (GitHub Secrets)
@@ -90,20 +254,44 @@ def run_update_videos_stats_manual(channel_ids: Optional[List[str]] = None):
             if not channels:
                 log("Nenhum canal válido encontrado", "ERROR")
                 return False
-        else:
-            log("Iniciando atualização MANUAL de vídeos de TODOS os canais")
-            log("ATENÇÃO: Esta execução processará TODOS os canais de uma vez!", "WARNING")
-            channels = supabase_client.get_channels()
             
-            if not channels:
+            # Extrai IDs dos canais
+            channel_ids_list = [c.channel_id for c in channels]
+        else:
+            # Busca todos os canais
+            all_channels = supabase_client.get_channels()
+            
+            if not all_channels:
                 log("Nenhum canal encontrado", "ERROR")
                 return False
-        
-        log(f"Total de canais a processar: {len(channels)}")
-        log(f"Esta execução pode levar bastante tempo dependendo da quantidade de vídeos", "INFO")
-        
-        # Extrai IDs dos canais
-        channel_ids_list = [c.channel_id for c in channels]
+            
+            # Se slots foram fornecidos via variável de ambiente, usa eles
+            # Senão, solicita ao usuário
+            if slots is not None:
+                selected_slots = set(slots)
+            else:
+                # Solicita slots ao usuário
+                selected_slots = get_user_slot_selection(all_channels, total_slots=12)
+            
+            if not selected_slots:
+                log("Nenhum slot selecionado", "ERROR")
+                return False
+            
+            # Coleta canais dos slots selecionados
+            channels = []
+            for slot in sorted(selected_slots):
+                slot_channels = get_channels_for_slot(all_channels, slot, total_slots=12)
+                channels.extend(slot_channels)
+                log(f"Slot {slot + 1}: {len(slot_channels)} canais adicionados")
+            
+            if not channels:
+                log("Nenhum canal encontrado nos slots selecionados", "ERROR")
+                return False
+            
+            log(f"Total de canais a processar: {len(channels)} (slots: {', '.join([str(s+1) for s in sorted(selected_slots)])})")
+            
+            # Extrai IDs dos canais
+            channel_ids_list = [c.channel_id for c in channels]
         
         # Atualiza vídeos de todos os canais selecionados
         log("=" * 60)
@@ -142,16 +330,35 @@ def run_update_videos_stats_manual(channel_ids: Optional[List[str]] = None):
 if __name__ == "__main__":
     # Verifica se foi especificado canais via variável de ambiente
     channel_ids_env = os.getenv("CHANNEL_IDS")
+    slots_env = os.getenv("SLOTS")
+    
     channel_ids = None
+    slots = None
     
     if channel_ids_env:
         # Suporta múltiplos channel_ids separados por vírgula
         channel_ids = [cid.strip() for cid in channel_ids_env.split(',') if cid.strip()]
         log(f"Modo MANUAL: Atualização de {len(channel_ids)} canal(is) específico(s)", "INFO")
+    elif slots_env:
+        # Slots fornecidos via variável de ambiente
+        try:
+            # Converte para lista de inteiros (0-indexed)
+            slots = [int(s.strip()) - 1 for s in slots_env.split(',') if s.strip()]
+            # Valida slots
+            slots = [s for s in slots if 0 <= s < 12]
+            if slots:
+                log(f"Modo MANUAL: Executando slots {', '.join([str(s+1) for s in slots])}", "INFO")
+            else:
+                log("Nenhum slot válido fornecido", "ERROR")
+                sys.exit(1)
+        except ValueError:
+            log("Formato inválido para SLOTS. Use números separados por vírgula (ex: 1,2,3)", "ERROR")
+            sys.exit(1)
     else:
-        log("Modo MANUAL: Atualização de TODOS os canais", "INFO")
-        log("Para atualizar canais específicos, use: CHANNEL_IDS=id1,id2,id3 python update_videos_stats_manual.py", "INFO")
+        log("Modo MANUAL: Seleção interativa de slots", "INFO")
+        log("Para especificar slots via variável de ambiente, use: SLOTS=1,2,3 python update_videos_stats_manual.py", "INFO")
+        log("Para especificar canais, use: CHANNEL_IDS=id1,id2,id3 python update_videos_stats_manual.py", "INFO")
     
-    success = run_update_videos_stats_manual(channel_ids=channel_ids)
+    success = run_update_videos_stats_manual(channel_ids=channel_ids, slots=slots)
     sys.exit(0 if success else 1)
 
