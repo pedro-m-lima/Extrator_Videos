@@ -266,12 +266,24 @@ def run_update_videos_stats_manual(channel_ids: Optional[List[str]] = None, slot
                 return False
             
             # Se slots foram fornecidos via variável de ambiente, usa eles
-            # Senão, solicita ao usuário
+            # Senão, verifica se está em ambiente interativo (terminal) ou não (GitHub Actions)
             if slots is not None:
                 selected_slots = set(slots)
             else:
-                # Solicita slots ao usuário
-                selected_slots = get_user_slot_selection(all_channels, total_slots=12)
+                # Verifica se está em ambiente interativo (tem stdin disponível)
+                import sys
+                is_interactive = sys.stdin.isatty()
+                
+                if is_interactive:
+                    # Ambiente interativo: solicita slots ao usuário
+                    selected_slots = get_user_slot_selection(all_channels, total_slots=12)
+                else:
+                    # Ambiente não interativo (GitHub Actions): usa slot automático baseado na hora
+                    from datetime import datetime
+                    current_hour = datetime.now().hour
+                    slot = (current_hour // 2) % 12
+                    selected_slots = {slot}
+                    log(f"Ambiente não interativo detectado. Usando slot automático: {slot + 1} (hora {current_hour:02d}:00)", "INFO")
             
             if not selected_slots:
                 log("Nenhum slot selecionado", "ERROR")
