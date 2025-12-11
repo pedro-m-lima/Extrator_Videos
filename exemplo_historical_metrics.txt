@@ -1,0 +1,247 @@
+====================================================================================================
+EXEMPLO DE DADOS AGREGADOS PARA historical_metrics
+====================================================================================================
+
+Mês de exemplo: 12/2025 (MÊS ATUAL)
+Período: 2025-12-01 até 2025-12-31
+Data atual: 2025-12-11 (dia 11 do mês)
+
+====================================================================================================
+
+ESTE ARQUIVO MOSTRA COMO FICARIAM OS DADOS APÓS A IMPLEMENTAÇÃO DA FUNCIONALIDADE
+DE GERAÇÃO AUTOMÁTICA DE HISTORICAL METRICS
+
+====================================================================================================
+
+
+====================================================================================================
+CANAL 1: Venus Podcast
+====================================================================================================
+Channel ID: UCTBhsXf_XRxk8w4rMj6WBOA
+
+DADOS QUE SERIAM INSERIDOS/ATUALIZADOS EM historical_metrics:
+----------------------------------------------------------------------------------------------------
+  channel_id: 'UCTBhsXf_XRxk8w4rMj6WBOA'
+  year: 2025
+  month: 12
+  views: 188,563,741  (do último dia de metrics do mês)
+  subscribers: 0  (diferença: final - inicial do mês)
+  video_count: 1,928  (do último dia de metrics do mês)
+  longs_posted: 0  (vídeos longos publicados no mês)
+  shorts_posted: 0  (shorts publicados no mês)
+  longs_views: 0  (soma views de longs do mês)
+  shorts_views: 0  (soma views de shorts do mês)
+  source: 'auto'  (gerado automaticamente pela cron job)
+
+
+====================================================================================================
+CANAL 2: Miguel Chain Jr
+====================================================================================================
+Channel ID: UC_CbWPl-oNvRW5Yi-7D62pA
+
+DADOS QUE SERIAM INSERIDOS/ATUALIZADOS EM historical_metrics:
+----------------------------------------------------------------------------------------------------
+  channel_id: 'UC_CbWPl-oNvRW5Yi-7D62pA'
+  year: 2025
+  month: 12
+  views: 91,845,251  (do último dia de metrics do mês)
+  subscribers: 0  (diferença: final - inicial do mês)
+  video_count: 4,582  (do último dia de metrics do mês)
+  longs_posted: 8  (vídeos longos publicados no mês)
+  shorts_posted: 0  (shorts publicados no mês)
+  longs_views: 69,944  (soma views de longs do mês)
+  shorts_views: 0  (soma views de shorts do mês)
+  source: 'auto'  (gerado automaticamente pela cron job)
+
+
+====================================================================================================
+CANAL 3: Irmãos Dias Podcast
+====================================================================================================
+Channel ID: UChBtPExX9RjCdmpAizK7ccQ
+
+DADOS QUE SERIAM INSERIDOS/ATUALIZADOS EM historical_metrics:
+----------------------------------------------------------------------------------------------------
+  channel_id: 'UChBtPExX9RjCdmpAizK7ccQ'
+  year: 2025
+  month: 12
+  views: 298,121,757  (do último dia de metrics do mês)
+  subscribers: 10,000  (diferença: final - inicial do mês)
+  video_count: 3,461  (do último dia de metrics do mês)
+  longs_posted: 11  (vídeos longos publicados no mês)
+  shorts_posted: 9  (shorts publicados no mês)
+  longs_views: 154,780  (soma views de longs do mês)
+  shorts_views: 922,637  (soma views de shorts do mês)
+  source: 'auto'  (gerado automaticamente pela cron job)
+
+
+====================================================================================================
+CANAL 4: O Conselho | Flávio Augusto
+====================================================================================================
+Channel ID: UCP3PkxfP6A_KqbaCOBEQQuA
+
+DADOS QUE SERIAM INSERIDOS/ATUALIZADOS EM historical_metrics:
+----------------------------------------------------------------------------------------------------
+  channel_id: 'UCP3PkxfP6A_KqbaCOBEQQuA'
+  year: 2025
+  month: 12
+  views: 49,981,126  (do último dia de metrics do mês)
+  subscribers: 0  (diferença: final - inicial do mês)
+  video_count: 363  (do último dia de metrics do mês)
+  longs_posted: 0  (vídeos longos publicados no mês)
+  shorts_posted: 0  (shorts publicados no mês)
+  longs_views: 0  (soma views de longs do mês)
+  shorts_views: 0  (soma views de shorts do mês)
+  source: 'auto'  (gerado automaticamente pela cron job)
+
+
+====================================================================================================
+CANAL 5: Ganley
+====================================================================================================
+Channel ID: UCULdWqgmALtwWSGUE81v1-g
+
+DADOS QUE SERIAM INSERIDOS/ATUALIZADOS EM historical_metrics:
+----------------------------------------------------------------------------------------------------
+  channel_id: 'UCULdWqgmALtwWSGUE81v1-g'
+  year: 2025
+  month: 12
+  views: 18,467,708  (do último dia de metrics do mês)
+  subscribers: 2,000  (diferença: final - inicial do mês)
+  video_count: 214  (do último dia de metrics do mês)
+  longs_posted: 1  (vídeos longos publicados no mês)
+  shorts_posted: 0  (shorts publicados no mês)
+  longs_views: 90,900  (soma views de longs do mês)
+  shorts_views: 0  (soma views de shorts do mês)
+  source: 'auto'  (gerado automaticamente pela cron job)
+
+
+====================================================================================================
+CANAL 6: Laércio Refundini
+====================================================================================================
+Channel ID: UCd4g7oX49jtbX7rN-wclkJg
+
+DADOS QUE SERIAM INSERIDOS/ATUALIZADOS EM historical_metrics:
+----------------------------------------------------------------------------------------------------
+  channel_id: 'UCd4g7oX49jtbX7rN-wclkJg'
+  year: 2025
+  month: 12
+  views: 571,799,241  (do último dia de metrics do mês)
+  subscribers: 0  (diferença: final - inicial do mês)
+  video_count: 3,113  (do último dia de metrics do mês)
+  longs_posted: 8  (vídeos longos publicados no mês)
+  shorts_posted: 3  (shorts publicados no mês)
+  longs_views: 287,167  (soma views de longs do mês)
+  shorts_views: 14,128  (soma views de shorts do mês)
+  source: 'auto'  (gerado automaticamente pela cron job)
+
+
+====================================================================================================
+CANAL 7: Pobre Show
+====================================================================================================
+Channel ID: UC6xhawZf2I30z9kAgqVEIvg
+
+DADOS QUE SERIAM INSERIDOS/ATUALIZADOS EM historical_metrics:
+----------------------------------------------------------------------------------------------------
+  channel_id: 'UC6xhawZf2I30z9kAgqVEIvg'
+  year: 2025
+  month: 12
+  views: 25,329,656  (do último dia de metrics do mês)
+  subscribers: 0  (diferença: final - inicial do mês)
+  video_count: 2,645  (do último dia de metrics do mês)
+  longs_posted: 12  (vídeos longos publicados no mês)
+  shorts_posted: 38  (shorts publicados no mês)
+  longs_views: 97,311  (soma views de longs do mês)
+  shorts_views: 139,189  (soma views de shorts do mês)
+  source: 'auto'  (gerado automaticamente pela cron job)
+
+
+====================================================================================================
+CANAL 8: Edson Castro [Oficial]
+====================================================================================================
+Channel ID: UCYhcXzgTL4AYPYk-9bdlI1g
+
+DADOS QUE SERIAM INSERIDOS/ATUALIZADOS EM historical_metrics:
+----------------------------------------------------------------------------------------------------
+  channel_id: 'UCYhcXzgTL4AYPYk-9bdlI1g'
+  year: 2025
+  month: 12
+  views: 52,892,490  (do último dia de metrics do mês)
+  subscribers: 0  (diferença: final - inicial do mês)
+  video_count: 2,069  (do último dia de metrics do mês)
+  longs_posted: 19  (vídeos longos publicados no mês)
+  shorts_posted: 1  (shorts publicados no mês)
+  longs_views: 365,935  (soma views de longs do mês)
+  shorts_views: 18,584  (soma views de shorts do mês)
+  source: 'auto'  (gerado automaticamente pela cron job)
+
+
+====================================================================================================
+CANAL 9: CORTES do CASTRINHO
+====================================================================================================
+Channel ID: UCl4CMVPc-t1124lntAV760g
+
+DADOS QUE SERIAM INSERIDOS/ATUALIZADOS EM historical_metrics:
+----------------------------------------------------------------------------------------------------
+  channel_id: 'UCl4CMVPc-t1124lntAV760g'
+  year: 2025
+  month: 12
+  views: 15,366,597  (do último dia de metrics do mês)
+  subscribers: 100  (diferença: final - inicial do mês)
+  video_count: 696  (do último dia de metrics do mês)
+  longs_posted: 18  (vídeos longos publicados no mês)
+  shorts_posted: 0  (shorts publicados no mês)
+  longs_views: 282,234  (soma views de longs do mês)
+  shorts_views: 0  (soma views de shorts do mês)
+  source: 'auto'  (gerado automaticamente pela cron job)
+
+
+====================================================================================================
+CANAL 10: Rodrigo Góes
+====================================================================================================
+Channel ID: UCU_q46MCMEu5l2QdshV0hGQ
+
+DADOS QUE SERIAM INSERIDOS/ATUALIZADOS EM historical_metrics:
+----------------------------------------------------------------------------------------------------
+  channel_id: 'UCU_q46MCMEu5l2QdshV0hGQ'
+  year: 2025
+  month: 12
+  views: 337,941,074  (do último dia de metrics do mês)
+  subscribers: 0  (diferença: final - inicial do mês)
+  video_count: 786  (do último dia de metrics do mês)
+  longs_posted: 2  (vídeos longos publicados no mês)
+  shorts_posted: 7  (shorts publicados no mês)
+  longs_views: 192,015  (soma views de longs do mês)
+  shorts_views: 821,085  (soma views de shorts do mês)
+  source: 'auto'  (gerado automaticamente pela cron job)
+
+
+====================================================================================================
+RESUMO TABULAR
+====================================================================================================
+
+Canal                                    Views       Subs Δ   Videos    Longs   Shorts      L.Views      S.Views
+----------------------------------------------------------------------------------------------------
+Venus Podcast                      188,563,741            0    1,928        0        0            0            0
+Miguel Chain Jr                     91,845,251            0    4,582        8        0       69,944            0
+Irmãos Dias Podcast                298,121,757       10,000    3,461       11        9      154,780      922,637
+O Conselho | Flávio Augusto         49,981,126            0      363        0        0            0            0
+Ganley                              18,467,708        2,000      214        1        0       90,900            0
+Laércio Refundini                  571,799,241            0    3,113        8        3      287,167       14,128
+Pobre Show                          25,329,656            0    2,645       12       38       97,311      139,189
+Edson Castro [Oficial]              52,892,490            0    2,069       19        1      365,935       18,584
+CORTES do CASTRINHO                 15,366,597          100      696       18        0      282,234            0
+Rodrigo Góes                       337,941,074            0      786        2        7      192,015      821,085
+
+====================================================================================================
+LEGENDA:
+  Views: Valor do último dia do mês (tabela metrics)
+  Subs Δ: Diferença de subscribers (final - inicial) do mês (tabela metrics)
+  Videos: Valor do último dia do mês (tabela metrics)
+  Longs, Shorts: Quantidade de vídeos publicados no mês (tabela videos)
+  L.Views, S.Views: Soma de views dos vídeos publicados no mês (tabela videos)
+
+NOTAS IMPORTANTES:
+  - A cron job executaria diariamente e atualizaria apenas o mês atual
+  - No último dia do mês, após atualizar o mês atual, criaria entradas para o próximo mês
+  - Os dados são calculados a partir das tabelas 'metrics' (diárias) e 'videos' (publicações)
+  - O campo 'subscribers' armazena a diferença (crescimento) do mês, não o valor absoluto
+====================================================================================================

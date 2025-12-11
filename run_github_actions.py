@@ -283,6 +283,36 @@ def run_extraction():
         except Exception as e:
             log(f"Não foi possível obter informações de quota: {e}", "WARNING")
         
+        # Atualiza historical_metrics (não quebra se houver erro)
+        try:
+            log("", "INFO")
+            log("Atualizando historical_metrics...", "INFO")
+            from historical_metrics_aggregator import HistoricalMetricsAggregator
+            supabase_client = SupabaseClient()
+            aggregator = HistoricalMetricsAggregator(supabase_client)
+            
+            # Processa mês atual
+            stats = aggregator.process_current_month()
+            log(f"Historical metrics: {stats['channels_processed']} processados, {stats['channels_updated']} atualizados, {stats['channels_created']} criados", "SUCCESS")
+            
+            # Se for último dia do mês, cria entradas do próximo mês
+            from datetime import date
+            from calendar import monthrange
+            today = date.today()
+            last_day = monthrange(today.year, today.month)[1]
+            
+            if today.day == last_day:
+                log(f"Último dia do mês detectado, criando entradas para o próximo mês...", "INFO")
+                next_month_stats = aggregator.create_next_month_entries()
+                log(f"Entradas criadas: {next_month_stats['entries_created']}", "SUCCESS")
+            
+            del aggregator
+            del supabase_client
+        except Exception as e:
+            log(f"Erro ao atualizar historical_metrics (não crítico): {e}", "WARNING")
+            import traceback
+            traceback.print_exc()
+        
         return True
         
     except Exception as e:
