@@ -8,14 +8,29 @@ from pathlib import Path
 # Diretório base do projeto
 BASE_DIR = Path(__file__).parent
 
-# Configurações do Supabase
-# Lê de variáveis de ambiente se disponível (para GitHub Actions), senão usa valores padrão
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://rmhozuzxcytguvluksih.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtaG96dXp4Y3l0Z3V2bHVrc2loIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2NDc4NjIsImV4cCI6MjA3ODIyMzg2Mn0.sOOFm246T0sVBVNOOYmyDFmvGKzet2X5rJvwp0o1UAU")
+# Configurações do MySQL
+# Lê de variáveis de ambiente (obrigatório para produção)
+# Configure as variáveis de ambiente: MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE
+MYSQL_HOST = os.getenv("MYSQL_HOST")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
+MYSQL_USER = os.getenv("MYSQL_USER")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE")
+
+if not all([MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE]):
+    raise ValueError(
+        "Configurações MySQL não encontradas! "
+        "Configure as variáveis de ambiente: MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE"
+    )
 
 # Chave inicial da API do YouTube
-# Lê de variáveis de ambiente se disponível (para GitHub Actions), senão usa valor padrão
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "AIzaSyCl5dHCtinYrqz5fv_pItVrIWzXLozWVtQ")
+# Lê de variáveis de ambiente (obrigatório)
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+if not YOUTUBE_API_KEY:
+    raise ValueError(
+        "YOUTUBE_API_KEY não configurada! "
+        "Configure a variável de ambiente YOUTUBE_API_KEY"
+    )
 
 # Arquivo de configuração de chaves
 API_KEYS_FILE = BASE_DIR / "api_keys.json"

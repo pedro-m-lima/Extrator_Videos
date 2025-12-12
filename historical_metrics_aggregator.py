@@ -61,40 +61,57 @@ class HistoricalMetricsAggregator:
             first_day = date(year, month, 1)
             last_day = date(year, month, monthrange(year, month)[1])
             
-            # Busca todas as métricas do mês
-            response = self.client.client.table('metrics').select('*').eq(
-                'channel_id', channel_id
-            ).gte('date', first_day.isoformat()).lte(
-                'date', last_day.isoformat()
-            ).order('date', desc=False).execute()
+            # Busca todas as métricas do mês usando SQL direto
+            connection = self.client._get_connection()
+            cursor = connection.cursor(dictionary=True)
             
-            if not response.data or len(response.data) == 0:
-                # Se não tem métricas no mês, busca a mais recente antes do mês
-                response_before = self.client.client.table('metrics').select('*').eq(
-                    'channel_id', channel_id
-                ).lt('date', first_day.isoformat()).order('date', desc=True).limit(1).execute()
+            try:
+                query = """
+                    SELECT * FROM metrics 
+                    WHERE channel_id = %s 
+                    AND date >= %s 
+                    AND date <= %s 
+                    ORDER BY date ASC
+                """
+                cursor.execute(query, (channel_id, first_day.isoformat(), last_day.isoformat()))
+                results = cursor.fetchall()
                 
-                if response_before.data:
-                    metric = response_before.data[0]
-                    return {
-                        'first_metric': metric,
-                        'last_metric': metric,
-                        'first_date': metric.get('date'),
-                        'last_date': metric.get('date'),
-                        'has_data_in_month': False
-                    }
-                return None
-            
-            first_metric = response.data[0]
-            last_metric = response.data[-1]
-            
-            return {
-                'first_metric': first_metric,
-                'last_metric': last_metric,
-                'first_date': first_metric.get('date'),
-                'last_date': last_metric.get('date'),
-                'has_data_in_month': True
-            }
+                if not results or len(results) == 0:
+                    # Se não tem métricas no mês, busca a mais recente antes do mês
+                    query_before = """
+                        SELECT * FROM metrics 
+                        WHERE channel_id = %s 
+                        AND date < %s 
+                        ORDER BY date DESC 
+                        LIMIT 1
+                    """
+                    cursor.execute(query_before, (channel_id, first_day.isoformat()))
+                    result_before = cursor.fetchone()
+                    
+                    if result_before:
+                        return {
+                            'first_metric': result_before,
+                            'last_metric': result_before,
+                            'first_date': result_before.get('date'),
+                            'last_date': result_before.get('date'),
+                            'has_data_in_month': False
+                        }
+                    return None
+                
+                first_metric = results[0]
+                last_metric = results[-1]
+                
+                return {
+                    'first_metric': first_metric,
+                    'last_metric': last_metric,
+                    'first_date': first_metric.get('date'),
+                    'last_date': last_metric.get('date'),
+                    'has_data_in_month': True
+                }
+            finally:
+                cursor.close()
+                if connection and connection.is_connected():
+                    connection.close()
         except Exception as e:
             self.logger.error(f"Erro ao buscar métricas mensais para {channel_id} ({year}/{month}): {e}")
             return None
@@ -220,41 +237,46 @@ class HistoricalMetricsAggregator:
             True se sucesso, False caso contrário
         """
         try:
-            metric_data = {
-                'channel_id': channel_id,
-                'year': year,
-                'month': month,
-                'views': metrics.get('views', 0),
-                'subscribers': metrics.get('subscribers', 0),
-                'video_count': metrics.get('video_count', 0),
-                'longs_posted': metrics.get('longs_posted', 0),
-                'shorts_posted': metrics.get('shorts_posted', 0),
-                'longs_views': metrics.get('longs_views', 0),
-                'shorts_views': metrics.get('shorts_views', 0),
-                'source': 'auto',
-                'updated_at': datetime.now().isoformat()
-            }
-            
-            # Usa UPSERT (INSERT ... ON CONFLICT ... UPDATE)
-            # O Supabase Python client não suporta diretamente, então fazemos:
-            # 1. Tenta inserir
-            # 2. Se der erro de duplicata, atualiza
+            # Usa INSERT ... ON DUPLICATE KEY UPDATE (MySQL)
+            connection = self.client._get_connection()
+            cursor = connection.cursor()
             
             try:
-                self.client.client.table('historical_metrics').insert(metric_data).execute()
+                query = """
+                    INSERT INTO historical_metrics 
+                    (channel_id, year, month, views, subscribers, video_count, 
+                     longs_posted, shorts_posted, longs_views, shorts_views, source, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        views = VALUES(views),
+                        subscribers = VALUES(subscribers),
+                        video_count = VALUES(video_count),
+                        longs_posted = VALUES(longs_posted),
+                        shorts_posted = VALUES(shorts_posted),
+                        longs_views = VALUES(longs_views),
+                        shorts_views = VALUES(shorts_views),
+                        source = VALUES(source),
+                        updated_at = VALUES(updated_at)
+                """
+                values = (
+                    channel_id, year, month,
+                    metrics.get('views', 0),
+                    metrics.get('subscribers', 0),
+                    metrics.get('video_count', 0),
+                    metrics.get('longs_posted', 0),
+                    metrics.get('shorts_posted', 0),
+                    metrics.get('longs_views', 0),
+                    metrics.get('shorts_views', 0),
+                    'auto',
+                    datetime.now().isoformat()
+                )
+                cursor.execute(query, values)
+                connection.commit()
                 return True
-            except Exception as e:
-                error_str = str(e).lower()
-                if 'duplicate' in error_str or 'unique' in error_str or 'constraint' in error_str:
-                    # Já existe, atualiza
-                    # Remove campos que não devem ser atualizados no UPDATE
-                    update_data = {k: v for k, v in metric_data.items() if k not in ['channel_id', 'year', 'month']}
-                    self.client.client.table('historical_metrics').update(
-                        update_data
-                    ).eq('channel_id', channel_id).eq('year', year).eq('month', month).execute()
-                    return True
-                else:
-                    raise
+            finally:
+                cursor.close()
+                if connection and connection.is_connected():
+                    connection.close()
             
         except Exception as e:
             self.logger.error(f"Erro ao fazer UPSERT de historical_metric para {channel_id} ({year}/{month}): {e}")
@@ -298,13 +320,24 @@ class HistoricalMetricsAggregator:
                     continue
                 
                 # Verifica se já existe registro
-                existing = self.client.client.table('historical_metrics').select('id').eq(
-                    'channel_id', channel.channel_id
-                ).eq('year', year).eq('month', month).execute()
+                connection = self.client._get_connection()
+                cursor = connection.cursor(dictionary=True)
+                try:
+                    query = """
+                        SELECT id FROM historical_metrics 
+                        WHERE channel_id = %s AND year = %s AND month = %s 
+                        LIMIT 1
+                    """
+                    cursor.execute(query, (channel.channel_id, year, month))
+                    existing = cursor.fetchone()
+                finally:
+                    cursor.close()
+                    if connection and connection.is_connected():
+                        connection.close()
                 
                 # Faz UPSERT
                 if self.upsert_historical_metric(channel.channel_id, year, month, metrics):
-                    if existing.data and len(existing.data) > 0:
+                    if existing:
                         stats['channels_updated'] += 1
                     else:
                         stats['channels_created'] += 1
@@ -356,31 +389,46 @@ class HistoricalMetricsAggregator:
         for i, channel in enumerate(channels, 1):
             try:
                 # Verifica se já existe
-                existing = self.client.client.table('historical_metrics').select('id').eq(
-                    'channel_id', channel.channel_id
-                ).eq('year', next_year).eq('month', next_month).execute()
+                connection = self.client._get_connection()
+                cursor = connection.cursor(dictionary=True)
+                try:
+                    query = """
+                        SELECT id FROM historical_metrics 
+                        WHERE channel_id = %s AND year = %s AND month = %s 
+                        LIMIT 1
+                    """
+                    cursor.execute(query, (channel.channel_id, next_year, next_month))
+                    existing = cursor.fetchone()
+                finally:
+                    cursor.close()
+                    if connection and connection.is_connected():
+                        connection.close()
                 
-                if existing.data and len(existing.data) > 0:
+                if existing:
                     self.logger.debug(f"Entrada já existe para {channel.name} em {next_month}/{next_year}, pulando...")
                     stats['entries_skipped'] += 1
                     continue
                 
-                # Cria entrada com valores zerados
-                metric_data = {
-                    'channel_id': channel.channel_id,
-                    'year': next_year,
-                    'month': next_month,
-                    'views': 0,
-                    'subscribers': 0,
-                    'video_count': 0,
-                    'longs_posted': 0,
-                    'shorts_posted': 0,
-                    'longs_views': 0,
-                    'shorts_views': 0,
-                    'source': 'auto'
-                }
-                
-                self.client.client.table('historical_metrics').insert(metric_data).execute()
+                # Cria entrada com valores zerados usando SQL direto
+                connection = self.client._get_connection()
+                cursor = connection.cursor()
+                try:
+                    query = """
+                        INSERT INTO historical_metrics 
+                        (channel_id, year, month, views, subscribers, video_count, 
+                         longs_posted, shorts_posted, longs_views, shorts_views, source)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    values = (
+                        channel.channel_id, next_year, next_month,
+                        0, 0, 0, 0, 0, 0, 0, 'auto'
+                    )
+                    cursor.execute(query, values)
+                    connection.commit()
+                finally:
+                    cursor.close()
+                    if connection and connection.is_connected():
+                        connection.close()
                 stats['entries_created'] += 1
                 self.logger.info(f"✅ Criada entrada para {channel.name} em {next_month}/{next_year}")
                 
