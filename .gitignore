@@ -3,6 +3,7 @@ api_keys.json
 schedule_config.json
 cache.json
 checkpoint.json
+.env
 
 # Python
 __pycache__/

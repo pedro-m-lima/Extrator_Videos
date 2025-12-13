@@ -4,6 +4,10 @@ Configurações do sistema de extração de vídeos do YouTube
 import os
 import json
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Carrega variáveis de ambiente do arquivo .env
+load_dotenv()
 
 # Diretório base do projeto
 BASE_DIR = Path(__file__).parent

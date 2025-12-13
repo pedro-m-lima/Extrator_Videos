@@ -45,7 +45,7 @@ def detect_short(duration: str, title: str, description: str = "") -> Tuple[str,
     
     Retorna: (format, is_short, is_invalid)
     - format: "9:16" para Short, "16:9" para vídeo normal
-    - is_short: True se for Short (duração < 3 minutos), False caso contrário
+    - is_short: True se for Short (duração < 181 segundos), False caso contrário
     - is_invalid: True se duração for 0 segundos (vídeo inválido), False caso contrário
     """
     # Converte duração para segundos
@@ -54,8 +54,8 @@ def detect_short(duration: str, title: str, description: str = "") -> Tuple[str,
     # Vídeo inválido se duração for 0 segundos
     is_invalid = duration_seconds == 0
     
-    # É Short se duração for menor que 3 minutos (180 segundos) E não for inválido
-    is_short = duration_seconds < 180 and not is_invalid
+    # É Short se duração for menor que 181 segundos (<= 180) E não for inválido
+    is_short = duration_seconds < 181 and not is_invalid
     
     format_type = "9:16" if is_short else "16:9"
     

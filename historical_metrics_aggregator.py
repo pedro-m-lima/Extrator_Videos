@@ -27,9 +27,10 @@ class HistoricalMetricsAggregator:
         Determina se vídeo é longo ou short
         
         Prioridade:
-        1. Campo is_short: se existe e é True → short (False), False → long (True)
-        2. Duração: se duration > 180s → long (True), senão → short (False)
-        3. Se não tem duração e não tem is_short → None (ignora)
+        1. Duração: se duration >= 181s → long (True), senão → short (False) - MAIS CONFIÁVEL
+        2. Campo is_short: se existe e é True → short (False), False → long (True) - fallback
+        3. Formato: se format == "9:16" → short (False), senão → long (True) - fallback adicional
+        4. Se não tem nenhuma informação → None (ignora)
         
         Returns:
             True se for longo, False se for short, None se não puder determinar
@@ -38,15 +39,22 @@ class HistoricalMetricsAggregator:
         if hasattr(video, 'is_invalid') and video.is_invalid:
             return None
         
-        # Verifica campo is_short primeiro
-        if hasattr(video, 'is_short') and video.is_short is not None:
-            return not video.is_short  # is_short=True → short (False), is_short=False → long (True)
-        
-        # Se não tem is_short, verifica duração
+        # PRIORIDADE 1: Verifica duração primeiro (mais confiável)
         if video.duration:
             duration_seconds = parse_iso8601_duration(video.duration)
             if duration_seconds > 0:
-                return duration_seconds > 180  # > 180s = long, <= 180s = short
+                return duration_seconds >= 181  # >= 181s = long, < 181s = short
+        
+        # PRIORIDADE 2: Se não tem duração, verifica campo is_short
+        if hasattr(video, 'is_short') and video.is_short is not None:
+            return not video.is_short  # is_short=True → short (False), is_short=False → long (True)
+        
+        # PRIORIDADE 3: Se não tem is_short, verifica formato
+        if hasattr(video, 'format') and video.format:
+            if video.format == "9:16":
+                return False  # Formato 9:16 = short
+            elif video.format == "16:9":
+                return True   # Formato 16:9 = long
         
         return None  # Sem informação suficiente
     
@@ -129,27 +137,35 @@ class HistoricalMetricsAggregator:
             Lista de vídeos publicados no mês
         """
         try:
-            # Busca todos os vídeos do canal
-            all_videos = self.client.get_videos_by_channel(channel_id)
+            # Busca vídeos diretamente do banco usando SQL (mais eficiente)
+            connection = self.client._get_connection()
+            cursor = connection.cursor(dictionary=True)
             
-            # Filtra vídeos publicados no mês
-            videos_in_month = []
-            for video in all_videos:
-                if video.published_at:
-                    try:
-                        pub_date_str = video.published_at
-                        # Remove 'Z' e converte
-                        if pub_date_str.endswith('Z'):
-                            pub_date_str = pub_date_str[:-1] + '+00:00'
-                        pub_date = datetime.fromisoformat(pub_date_str)
-                        if pub_date.year == year and pub_date.month == month:
-                            videos_in_month.append(video)
-                    except Exception as e:
-                        continue
+            try:
+                # Usa SQL para filtrar diretamente por ano e mês
+                query = """
+                    SELECT * FROM videos 
+                    WHERE channel_id = %s 
+                    AND YEAR(published_at) = %s 
+                    AND MONTH(published_at) = %s
+                    ORDER BY published_at ASC
+                """
+                cursor.execute(query, (channel_id, year, month))
+                results = cursor.fetchall()
+                
+                # Converte para objetos Video
+                videos_in_month = [Video.from_dict(row) for row in results]
+                
+                return videos_in_month
+            finally:
+                cursor.close()
+                if connection and connection.is_connected():
+                    connection.close()
             
-            return videos_in_month
         except Exception as e:
             self.logger.error(f"Erro ao buscar vídeos do mês para {channel_id} ({year}/{month}): {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def aggregate_monthly_metrics(
@@ -168,22 +184,31 @@ class HistoricalMetricsAggregator:
             # 1. Busca métricas diárias do mês
             monthly_metrics = self.get_monthly_metrics(channel_id, year, month)
             
-            if not monthly_metrics:
-                self.logger.warning(f"Nenhuma métrica encontrada para {channel_id} em {year}/{month}")
-                return None
+            # Inicializa valores padrão
+            views = 0
+            subscribers_diff = 0
+            video_count = 0
             
-            first_metric = monthly_metrics['first_metric']
-            last_metric = monthly_metrics['last_metric']
+            if monthly_metrics:
+                first_metric = monthly_metrics['first_metric']
+                last_metric = monthly_metrics['last_metric']
+                
+                # Calcula valores das métricas
+                views = last_metric.get('views', 0)
+                subscribers_final = last_metric.get('subscribers', 0)
+                subscribers_initial = first_metric.get('subscribers', 0)
+                subscribers_diff = subscribers_final - subscribers_initial
+                video_count = last_metric.get('video_count', 0)
+            else:
+                self.logger.warning(f"Nenhuma métrica diária encontrada para {channel_id} em {year}/{month}, usando apenas dados de vídeos")
             
-            # Calcula valores das métricas
-            views = last_metric.get('views', 0)
-            subscribers_final = last_metric.get('subscribers', 0)
-            subscribers_initial = first_metric.get('subscribers', 0)
-            subscribers_diff = subscribers_final - subscribers_initial
-            video_count = last_metric.get('video_count', 0)
-            
-            # 2. Busca vídeos publicados no mês
+            # 2. Busca vídeos publicados no mês (sempre calcula, mesmo sem métricas diárias)
             videos_in_month = self.get_videos_published_in_month(channel_id, year, month)
+            
+            # Se não há vídeos nem métricas, retorna None
+            if not videos_in_month and not monthly_metrics:
+                self.logger.warning(f"Nenhum dado encontrado para {channel_id} em {year}/{month}")
+                return None
             
             # 3. Calcula agregados de vídeos
             longs_posted = 0
