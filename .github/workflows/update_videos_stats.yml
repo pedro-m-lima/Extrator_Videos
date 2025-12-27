@@ -2,32 +2,41 @@ name: Atualizar Estatísticas dos Vídeos
 
 on:
   schedule:
-    # Executa a cada 2 horas (12 vezes por dia)
+    # Executa das 1h às 9h BRT, de 2 em 2 horas (5 vezes por dia)
+    # Dias pares: Fitness | Dias ímpares: Podcast
     # UTC times (BRT = UTC-3)
-    - cron: '0 0 * * *'   # 00:00 UTC (21:00 BRT do dia anterior)
-    - cron: '0 2 * * *'   # 02:00 UTC (23:00 BRT do dia anterior)
     - cron: '0 4 * * *'   # 04:00 UTC (01:00 BRT)
     - cron: '0 6 * * *'   # 06:00 UTC (03:00 BRT)
     - cron: '0 8 * * *'   # 08:00 UTC (05:00 BRT)
     - cron: '0 10 * * *'  # 10:00 UTC (07:00 BRT)
     - cron: '0 12 * * *'  # 12:00 UTC (09:00 BRT)
-    - cron: '0 14 * * *'  # 14:00 UTC (11:00 BRT)
-    - cron: '0 16 * * *'  # 16:00 UTC (13:00 BRT)
-    - cron: '0 18 * * *'  # 18:00 UTC (15:00 BRT)
-    - cron: '0 20 * * *'  # 20:00 UTC (17:00 BRT)
-    - cron: '0 22 * * *'  # 22:00 UTC (19:00 BRT)
   
   # Permite execução manual
   workflow_dispatch:
     inputs:
       channel_ids:
-        description: 'IDs dos canais (separados por vírgula) ou deixe vazio para usar slots'
+        description: 'IDs dos canais (separados por vírgula) ou deixe vazio para usar lotes'
         required: false
         type: string
-      slots:
-        description: 'Números dos slots para executar (ex: 1,2,3 ou 1-3). Deixe vazio para slot automático baseado na hora'
+      segment:
+        description: 'Segmento: "fitness" (dias pares) ou "podcast" (dias ímpares). Deixe vazio para automático baseado no dia'
         required: false
-        type: string
+        type: choice
+        options:
+          - ''
+          - fitness
+          - podcast
+      slot:
+        description: 'Número do slot (1-5) para executar. Deixe vazio para todos os slots do segmento'
+        required: false
+        type: choice
+        options:
+          - ''
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
 
 jobs:
   update_videos:
@@ -57,7 +66,8 @@ jobs:
         YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
         CHANNEL_IDS: ${{ inputs.channel_ids }}
-        SLOTS: ${{ inputs.slots }}
+        SEGMENT: ${{ inputs.segment }}
+        SLOT: ${{ inputs.slot }}
       run: |
         # Se foi executado manualmente (workflow_dispatch), usa script manual
         # Se foi executado via schedule, usa script automático

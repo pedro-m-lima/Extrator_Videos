@@ -28,13 +28,56 @@ def log(message: str, level: str = "INFO"):
     sys.stdout.flush()
 
 
-def get_channels_for_current_hour(all_channels: List[Channel], total_hours: int = 12) -> List[Channel]:
+def get_channels_by_segment_and_slot(all_channels: List[Channel], segment: str, slot: int, total_slots: int = 5) -> List[Channel]:
     """
-    Divide canais por hora para distribuir carga ao longo do dia
+    Obtém canais de um segmento específico e slot específico
     
     Args:
         all_channels: Lista de todos os canais
-        total_hours: Número de horas no ciclo (12 horas = execução a cada 2 horas)
+        segment: Segmento ('fitness' ou 'podcast')
+        slot: Número do slot (0-4, onde 0=1h, 1=3h, 2=5h, 3=7h, 4=9h BRT)
+        total_slots: Número total de slots (padrão 5)
+    
+    Returns:
+        Lista de canais do segmento e slot especificados
+    """
+    if not all_channels:
+        return []
+    
+    # Filtra canais por segmento
+    segment_channels = []
+    for ch in all_channels:
+        ch_segment = (ch.segment or '').strip().lower()
+        if ch_segment == segment.lower():
+            segment_channels.append(ch)
+    
+    if not segment_channels:
+        return []
+    
+    # Ordena canais por channel_id para garantir distribuição estável e determinística
+    # Isso garante que novos canais sejam distribuídos de forma consistente
+    segment_channels.sort(key=lambda ch: ch.channel_id)
+    
+    # Distribui canais do segmento entre os slots
+    channels_per_slot = (len(segment_channels) + total_slots - 1) // total_slots  # Arredonda para cima
+    
+    # Calcula índice inicial e final para o slot
+    start_idx = slot * channels_per_slot
+    end_idx = min(start_idx + channels_per_slot, len(segment_channels))
+    
+    channels_to_process = segment_channels[start_idx:end_idx]
+    
+    return channels_to_process
+
+
+def get_channels_for_current_hour(all_channels: List[Channel]) -> List[Channel]:
+    """
+    Obtém canais para processar na hora atual baseado em:
+    - Dia par/ímpar (determina segmento: fitness ou podcast)
+    - Hora atual (determina slot: 1h, 3h, 5h, 7h, 9h BRT)
+    
+    Args:
+        all_channels: Lista de todos os canais
     
     Returns:
         Lista de canais para processar na hora atual
@@ -42,27 +85,42 @@ def get_channels_for_current_hour(all_channels: List[Channel], total_hours: int 
     if not all_channels:
         return []
     
-    # Obtém a hora atual (0-23)
-    current_hour = datetime.now().hour
+    # Obtém dia atual (1-31)
+    current_day = datetime.now().day
+    is_even_day = (current_day % 2) == 0
     
-    # Calcula qual "slot" de 2 horas estamos (0-11)
-    # Executa a cada 2 horas, então temos 12 slots por dia
-    slot = (current_hour // 2) % total_hours
+    # Determina segmento baseado no dia
+    # Dias pares = Fitness, Dias ímpares = Podcast
+    segment = 'fitness' if is_even_day else 'podcast'
     
-    # Calcula quantos canais processar por slot
-    channels_per_slot = (len(all_channels) + total_hours - 1) // total_hours  # Arredonda para cima
+    # Obtém a hora atual (0-23) em UTC
+    current_hour_utc = datetime.utcnow().hour
     
-    # Calcula índice inicial e final
-    start_idx = slot * channels_per_slot
-    end_idx = min(start_idx + channels_per_slot, len(all_channels))
+    # Mapeia hora UTC para slot BRT
+    # 1h BRT = 4h UTC, 3h BRT = 6h UTC, 5h BRT = 8h UTC, 7h BRT = 10h UTC, 9h BRT = 12h UTC
+    hour_to_slot = {
+        4: 0,   # 01:00 BRT
+        6: 1,   # 03:00 BRT
+        8: 2,   # 05:00 BRT
+        10: 3,  # 07:00 BRT
+        12: 4   # 09:00 BRT
+    }
     
-    channels_to_process = all_channels[start_idx:end_idx]
+    slot = hour_to_slot.get(current_hour_utc, -1)
     
-    log(f"Slot atual: {slot}/{total_hours-1} (hora {current_hour:02d}:00)")
-    log(f"Processando canais {start_idx+1} a {end_idx} de {len(all_channels)} total")
-    log(f"Canais neste slot: {len(channels_to_process)}")
+    if slot == -1:
+        log(f"Hora atual ({current_hour_utc:02d}:00 UTC) não corresponde a nenhum slot de execução", "WARNING")
+        return []
     
-    return channels_to_process
+    # Obtém canais do segmento e slot
+    channels = get_channels_by_segment_and_slot(all_channels, segment, slot, total_slots=5)
+    
+    slot_hours_brt = [1, 3, 5, 7, 9]
+    log(f"Dia {current_day} ({'par' if is_even_day else 'ímpar'}) - Segmento: {segment.upper()}")
+    log(f"Slot {slot+1}/5 - Hora {slot_hours_brt[slot]:02d}:00 BRT ({current_hour_utc:02d}:00 UTC)")
+    log(f"Canais neste lote: {len(channels)}")
+    
+    return channels
 
 
 def run_update_videos_stats(channel_ids: Optional[List[str]] = None):
@@ -123,15 +181,15 @@ def run_update_videos_stats(channel_ids: Optional[List[str]] = None):
                 log("Nenhum canal válido encontrado", "ERROR")
                 return False
         else:
-            log("Iniciando atualização de vídeos - modo divisão por hora")
+            log("Iniciando atualização de vídeos - modo automático (segmento + slot por dia/hora)")
             all_channels = supabase_client.get_channels()
             
             if not all_channels:
                 log("Nenhum canal encontrado", "ERROR")
                 return False
             
-            # Divide canais por hora (execução a cada 2 horas = 12 slots por dia)
-            channels = get_channels_for_current_hour(all_channels, total_hours=12)
+            # Obtém canais baseado em dia par/ímpar e hora atual
+            channels = get_channels_for_current_hour(all_channels)
             
             if not channels:
                 log("Nenhum canal para processar neste horário", "INFO")
