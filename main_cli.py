@@ -152,7 +152,9 @@ class ExtractorCLI:
                         current_oldest, current_newest = self.supabase_client.get_channel_video_dates(channel.channel_id)
                         
                         newest_str = format_datetime(newest_date)
-                        if not current_newest or newest_date > parse_datetime(current_newest):
+                        # Verifica se current_newest é válido e pode ser parseado antes de comparar
+                        current_newest_dt = parse_datetime(current_newest) if current_newest else None
+                        if not current_newest_dt or newest_date > current_newest_dt:
                             update_newest = newest_str
                             
                             if update_newest:
