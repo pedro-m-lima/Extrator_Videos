@@ -321,8 +321,28 @@ class HistoricalMetricsAggregator:
         self.logger.info(f"Processando historical_metrics para {month}/{year}")
         
         # Busca todos os canais
-        channels = self.client.get_channels()
-        self.logger.info(f"Encontrados {len(channels)} canais para processar")
+        try:
+            channels = self.client.get_channels()
+            self.logger.info(f"Encontrados {len(channels)} canais para processar")
+        except Exception as e:
+            self.logger.error(f"Erro ao buscar canais: {e}")
+            return {
+                'channels_processed': 0,
+                'channels_updated': 0,
+                'channels_created': 0,
+                'channels_skipped': 0,
+                'errors': 1
+            }
+        
+        if not channels:
+            self.logger.warning("Nenhum canal encontrado!")
+            return {
+                'channels_processed': 0,
+                'channels_updated': 0,
+                'channels_created': 0,
+                'channels_skipped': 0,
+                'errors': 0
+            }
         
         stats = {
             'channels_processed': 0,
@@ -332,33 +352,45 @@ class HistoricalMetricsAggregator:
             'errors': 0
         }
         
+        # Processa apenas a cada 10 canais para não sobrecarregar logs
+        log_interval = max(1, len(channels) // 10)
+        
         for i, channel in enumerate(channels, 1):
             try:
-                self.logger.info(f"Processando canal {i}/{len(channels)}: {channel.name} ({channel.channel_id})")
+                # Log apenas a cada intervalo ou nos primeiros/últimos
+                if i <= 3 or i > len(channels) - 3 or i % log_interval == 0:
+                    self.logger.info(f"Processando canal {i}/{len(channels)}: {channel.name} ({channel.channel_id})")
                 
                 # Agrega métricas do mês atual
                 metrics = self.aggregate_monthly_metrics(channel.channel_id, year, month)
                 
                 if not metrics:
-                    self.logger.warning(f"Sem métricas para {channel.name}, pulando...")
+                    if i <= 3 or i > len(channels) - 3:
+                        self.logger.warning(f"Sem métricas para {channel.name}, pulando...")
                     stats['channels_skipped'] += 1
                     continue
                 
                 # Verifica se já existe registro
-                connection = self.client._get_connection()
-                cursor = connection.cursor(dictionary=True)
+                existing = None
                 try:
-                    query = """
-                        SELECT id FROM historical_metrics 
-                        WHERE channel_id = %s AND year = %s AND month = %s 
-                        LIMIT 1
-                    """
-                    cursor.execute(query, (channel.channel_id, year, month))
-                    existing = cursor.fetchone()
-                finally:
-                    cursor.close()
-                    if connection and connection.is_connected():
-                        connection.close()
+                    connection = self.client._get_connection()
+                    cursor = connection.cursor(dictionary=True)
+                    try:
+                        query = """
+                            SELECT id FROM historical_metrics 
+                            WHERE channel_id = %s AND year = %s AND month = %s 
+                            LIMIT 1
+                        """
+                        cursor.execute(query, (channel.channel_id, year, month))
+                        existing = cursor.fetchone()
+                    finally:
+                        cursor.close()
+                        if connection and connection.is_connected():
+                            connection.close()
+                except Exception as e:
+                    self.logger.error(f"Erro ao verificar registro existente para {channel.name}: {e}")
+                    stats['errors'] += 1
+                    continue
                 
                 # Faz UPSERT
                 if self.upsert_historical_metric(channel.channel_id, year, month, metrics):
@@ -367,7 +399,8 @@ class HistoricalMetricsAggregator:
                     else:
                         stats['channels_created'] += 1
                     stats['channels_processed'] += 1
-                    self.logger.info(f"✅ {channel.name}: views={metrics['views']:,}, subs={metrics['subscribers']:,}, longs={metrics['longs_posted']}, shorts={metrics['shorts_posted']}")
+                    if i <= 3 or i > len(channels) - 3 or i % log_interval == 0:
+                        self.logger.info(f"✅ {channel.name}: views={metrics['views']:,}, subs={metrics['subscribers']:,}, longs={metrics['longs_posted']}, shorts={metrics['shorts_posted']}")
                 else:
                     stats['errors'] += 1
                     self.logger.error(f"❌ Erro ao processar {channel.name}")

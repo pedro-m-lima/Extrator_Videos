@@ -7,7 +7,7 @@ import sys
 import os
 import gc
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeoutError
 import config
 from api_key_manager import APIKeyManager
 from supabase_client import SupabaseClient
@@ -93,6 +93,13 @@ def process_single_channel(
             return channel_stats
         
         log(f"  Encontrados {len(videos_data)} vídeos novos")
+        
+        # Limita número de vídeos processados por canal para evitar timeout
+        # Processa no máximo 200 vídeos por canal por execução
+        MAX_VIDEOS_PER_CHANNEL = 200
+        if len(videos_data) > MAX_VIDEOS_PER_CHANNEL:
+            log(f"  ⚠️  Limite de {MAX_VIDEOS_PER_CHANNEL} vídeos por canal. Processando apenas os {MAX_VIDEOS_PER_CHANNEL} mais recentes.", "WARNING")
+            videos_data = videos_data[:MAX_VIDEOS_PER_CHANNEL]
         
         # Processa vídeos
         videos = youtube_extractor.process_videos(videos_data, channel.channel_id)
@@ -207,16 +214,57 @@ def run_extraction():
         supabase_client = SupabaseClient()
         
         # Busca canais (sempre modo ATUAL - busca todos os canais)
-        channels = supabase_client.get_channels()
-        log(f"Encontrados {len(channels)} canais para processar")
+        all_channels = supabase_client.get_channels()
+        log(f"Encontrados {len(all_channels)} canais no total")
         
         # Limpa referências dos clientes principais (cada thread criará os seus)
         del supabase_client
         del api_key_manager
         gc.collect()
         
-        if not channels:
+        if not all_channels:
             log("Nenhum canal encontrado")
+            return True
+        
+        # Divide canais em lotes baseado na hora atual para evitar timeout
+        # O workflow roda 3 vezes ao dia, então dividimos em 3 lotes
+        from datetime import timezone
+        now_utc = datetime.now(timezone.utc)
+        current_hour_utc = now_utc.hour
+        current_minute_utc = now_utc.minute
+        
+        # Mapeia hora UTC para lote (0, 1 ou 2)
+        # 04:00 UTC = lote 0, 12:00 UTC = lote 1, 19:30 UTC = lote 2
+        if current_hour_utc == 4:
+            batch_number = 0
+            batch_name = "1:00 BRT (04:00 UTC)"
+        elif current_hour_utc == 12:
+            batch_number = 1
+            batch_name = "9:00 BRT (12:00 UTC)"
+        elif current_hour_utc == 19 and current_minute_utc >= 30:
+            batch_number = 2
+            batch_name = "16:30 BRT (19:30 UTC)"
+        else:
+            # Se não for horário agendado, usa lote baseado na hora atual
+            # Distribui de forma estável baseado no dia do mês
+            from datetime import date
+            day_of_month = date.today().day
+            batch_number = day_of_month % 3
+            batch_name = f"Execução manual (lote {batch_number + 1}, baseado no dia {day_of_month})"
+        
+        # Divide canais em 3 lotes
+        total_batches = 3
+        channels_per_batch = (len(all_channels) + total_batches - 1) // total_batches
+        start_idx = batch_number * channels_per_batch
+        end_idx = min(start_idx + channels_per_batch, len(all_channels))
+        
+        channels = all_channels[start_idx:end_idx]
+        
+        log(f"Lote {batch_number + 1}/{total_batches} - {batch_name}")
+        log(f"Processando canais {start_idx + 1} a {end_idx} de {len(all_channels)} total ({len(channels)} canais)")
+        
+        if not channels:
+            log("Nenhum canal para processar neste lote")
             return True
         
         # Ordena por prioridade
@@ -234,6 +282,9 @@ def run_extraction():
         
         # Processa canais em paralelo com 3 workers
         # Cada thread cria seus próprios clientes para evitar problemas de thread-safety
+        # Timeout por canal: 30 minutos (1800 segundos) para evitar que um canal trave tudo
+        CHANNEL_TIMEOUT = 30 * 60  # 30 minutos
+        
         with ThreadPoolExecutor(max_workers=3) as executor:
             # Submete todas as tarefas, passando as chaves de API para cada thread
             future_to_channel = {
@@ -252,11 +303,17 @@ def run_extraction():
             for future in as_completed(future_to_channel):
                 channel = future_to_channel[future]
                 try:
-                    stats = future.result()
+                    # Timeout individual por canal (30 minutos)
+                    stats = future.result(timeout=CHANNEL_TIMEOUT)
                     total_new += stats['new']
                     total_existing += stats['existing']
                     total_errors += stats['errors']
                     total_videos += stats['new']
+                except FutureTimeoutError:
+                    log(f"⏱️  Timeout ao processar canal {channel.name} (>{CHANNEL_TIMEOUT//60} min). Pulando...", "WARNING")
+                    total_errors += 1
+                    # Cancela a tarefa que excedeu o timeout
+                    future.cancel()
                 except Exception as e:
                     log(f"Erro ao processar resultado do canal {channel.name}: {e}", "ERROR")
                     total_errors += 1
@@ -288,14 +345,22 @@ def run_extraction():
         # Atualiza historical_metrics (não quebra se houver erro)
         try:
             log("", "INFO")
+            log("=" * 60)
             log("Atualizando historical_metrics...", "INFO")
+            log("=" * 60)
             from historical_metrics_aggregator import HistoricalMetricsAggregator
             supabase_client = SupabaseClient()
             aggregator = HistoricalMetricsAggregator(supabase_client)
             
             # Processa mês atual
             stats = aggregator.process_current_month()
-            log(f"Historical metrics: {stats['channels_processed']} processados, {stats['channels_updated']} atualizados, {stats['channels_created']} criados", "SUCCESS")
+            
+            if stats['channels_processed'] > 0:
+                log(f"Historical metrics: {stats['channels_processed']} processados, {stats['channels_updated']} atualizados, {stats['channels_created']} criados", "SUCCESS")
+            else:
+                log(f"Historical metrics: Nenhum canal processado! Verifique se a tabela 'metrics' tem dados do mês atual.", "WARNING")
+                log(f"  - Canais pulados: {stats['channels_skipped']}", "WARNING")
+                log(f"  - Erros: {stats['errors']}", "WARNING" if stats['errors'] == 0 else "ERROR")
             
             # Se for último dia do mês, cria entradas do próximo mês
             from datetime import date
@@ -311,7 +376,8 @@ def run_extraction():
             del aggregator
             del supabase_client
         except Exception as e:
-            log(f"Erro ao atualizar historical_metrics (não crítico): {e}", "WARNING")
+            log(f"ERRO ao atualizar historical_metrics: {e}", "ERROR")
+            log("Este erro não interrompe a extração, mas os historical_metrics não serão atualizados.", "WARNING")
             import traceback
             traceback.print_exc()
         
