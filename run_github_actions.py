@@ -226,6 +226,7 @@ def run_extraction():
             log("Nenhum canal encontrado")
             return True
         
+        # Verifica se é execução manual ou agendada
         # Divide canais em lotes baseado na hora atual para evitar timeout
         # O workflow roda 3 vezes ao dia, então dividimos em 3 lotes
         from datetime import timezone
@@ -233,35 +234,40 @@ def run_extraction():
         current_hour_utc = now_utc.hour
         current_minute_utc = now_utc.minute
         
-        # Mapeia hora UTC para lote (0, 1 ou 2)
-        # 04:00 UTC = lote 0, 12:00 UTC = lote 1, 19:30 UTC = lote 2
-        if current_hour_utc == 4:
-            batch_number = 0
-            batch_name = "1:00 BRT (04:00 UTC)"
-        elif current_hour_utc == 12:
-            batch_number = 1
-            batch_name = "9:00 BRT (12:00 UTC)"
-        elif current_hour_utc == 19 and current_minute_utc >= 30:
-            batch_number = 2
-            batch_name = "16:30 BRT (19:30 UTC)"
+        # Verifica se é um horário agendado
+        is_scheduled_time = (
+            current_hour_utc == 4 or
+            current_hour_utc == 12 or
+            (current_hour_utc == 19 and current_minute_utc >= 30)
+        )
+        
+        # Se não for horário agendado, processa TODOS os canais (execução manual)
+        if not is_scheduled_time:
+            channels = all_channels
+            log(f"Execução MANUAL detectada - Processando TODOS os {len(channels)} canais")
         else:
-            # Se não for horário agendado, usa lote baseado na hora atual
-            # Distribui de forma estável baseado no dia do mês
-            from datetime import date
-            day_of_month = date.today().day
-            batch_number = day_of_month % 3
-            batch_name = f"Execução manual (lote {batch_number + 1}, baseado no dia {day_of_month})"
-        
-        # Divide canais em 3 lotes
-        total_batches = 3
-        channels_per_batch = (len(all_channels) + total_batches - 1) // total_batches
-        start_idx = batch_number * channels_per_batch
-        end_idx = min(start_idx + channels_per_batch, len(all_channels))
-        
-        channels = all_channels[start_idx:end_idx]
-        
-        log(f"Lote {batch_number + 1}/{total_batches} - {batch_name}")
-        log(f"Processando canais {start_idx + 1} a {end_idx} de {len(all_channels)} total ({len(channels)} canais)")
+            # Mapeia hora UTC para lote (0, 1 ou 2)
+            # 04:00 UTC = lote 0, 12:00 UTC = lote 1, 19:30 UTC = lote 2
+            if current_hour_utc == 4:
+                batch_number = 0
+                batch_name = "1:00 BRT (04:00 UTC)"
+            elif current_hour_utc == 12:
+                batch_number = 1
+                batch_name = "9:00 BRT (12:00 UTC)"
+            elif current_hour_utc == 19 and current_minute_utc >= 30:
+                batch_number = 2
+                batch_name = "16:30 BRT (19:30 UTC)"
+            
+            # Divide canais em 3 lotes
+            total_batches = 3
+            channels_per_batch = (len(all_channels) + total_batches - 1) // total_batches
+            start_idx = batch_number * channels_per_batch
+            end_idx = min(start_idx + channels_per_batch, len(all_channels))
+            
+            channels = all_channels[start_idx:end_idx]
+            
+            log(f"Lote {batch_number + 1}/{total_batches} - {batch_name}")
+            log(f"Processando canais {start_idx + 1} a {end_idx} de {len(all_channels)} total ({len(channels)} canais)")
         
         if not channels:
             log("Nenhum canal para processar neste lote")
@@ -356,7 +362,7 @@ def run_extraction():
             stats = aggregator.process_current_month()
             
             if stats['channels_processed'] > 0:
-                log(f"Historical metrics: {stats['channels_processed']} processados, {stats['channels_updated']} atualizados, {stats['channels_created']} criados", "SUCCESS")
+            log(f"Historical metrics: {stats['channels_processed']} processados, {stats['channels_updated']} atualizados, {stats['channels_created']} criados", "SUCCESS")
             else:
                 log(f"Historical metrics: Nenhum canal processado! Verifique se a tabela 'metrics' tem dados do mês atual.", "WARNING")
                 log(f"  - Canais pulados: {stats['channels_skipped']}", "WARNING")
